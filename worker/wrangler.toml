@@ -1,0 +1,13 @@
+name = "stapy-shop-mcp-demo"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+# 静的アセット（Web UI 4ページ + images/ + shop.js + webmcp.js + styles.css）
+[assets]
+directory = "../stapy_shop/static"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "stapy-shop-db"
+database_id = "498b98e5-65d9-4573-b35b-af81b204f400"

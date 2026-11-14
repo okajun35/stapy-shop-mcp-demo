@@ -7,3 +7,5 @@ __pycache__/
 .pytest_cache/
 *:Zone.Identifier
 node_modules/
+.wrangler/
+worker/src/generated/
