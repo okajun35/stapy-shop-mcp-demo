@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="stapy商店 操作ログ：WEB / MCP / MCP_APPS / WEBMCP の呼び出し経路を確認するデモページ。">
+<title>操作ログ | stapy商店 — ECデモ</title>
+<link rel="stylesheet" href="/static/styles.css">
+<style>
+.logs-wrap{max-width:1100px;margin:30px auto;padding:0 24px}
+.logs-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.logs-head h1{margin:0;font-size:24px}
+.legend{display:flex;gap:8px;flex-wrap:wrap;font-size:12px}
+.chip{display:inline-block;padding:2px 10px;border-radius:99px;font-weight:800;font-size:11px;letter-spacing:.03em}
+.chip-WEB{background:#e2e8f0;color:#1e293b}
+.chip-MCP{background:#dbeafe;color:#1e40af}
+.chip-MCP_APPS{background:#dcfce7;color:#166534}
+.chip-WEBMCP{background:#fef3c7;color:#92400e}
+.log-table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:var(--shadow);font-size:13px}
+.log-table th,.log-table td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line)}
+.log-table th{background:var(--navy);color:#fff;font-size:12px;letter-spacing:.04em}
+.log-table tr:last-child td{border-bottom:0}
+.log-table td.ts{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}
+.demo-reset-btn{margin-left:auto}
+.auto-note{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body data-page="logs">
+<div class="logs-wrap">
+ <div class="logs-head">
+  <h1>操作ログ <span class="title-squiggle">〰</span></h1>
+  <div class="legend">
+   <span class="chip chip-WEB">WEB：画面操作</span>
+   <span class="chip chip-MCP">MCP：ツール呼出</span>
+   <span class="chip chip-MCP_APPS">MCP_APPS：アプリUI</span>
+   <span class="chip chip-WEBMCP">WEBMCP：ブラウザツール</span>
+  </div>
+  <button type="button" class="button button-primary demo-reset-btn" id="demo-reset">↺ デモリセット（カートを空に）</button>
+ </div>
+ <p class="auto-note">2秒ごとに自動更新。最新100件を表示。<a href="/">← 商品一覧へ戻る</a></p>
+ <table class="log-table">
+  <thead><tr><th>時刻</th><th>経路</th><th>操作</th><th>内容</th></tr></thead>
+  <tbody id="log-body"><tr><td colspan="4">読み込み中…</td></tr></tbody>
+ </table>
+</div>
+<div id="toast-region" class="toast-region" aria-live="polite"></div>
+<script>
+const tbody = document.getElementById('log-body');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function load(){
+  try {
+    const r = await fetch('/api/demo/logs?limit=100');
+    const {logs} = await r.json();
+    if (!logs.length) { tbody.innerHTML = '<tr><td colspan="4">ログはまだありません</td></tr>'; return; }
+    tbody.innerHTML = logs.map(l =>
+      `<tr><td class="ts">${esc(l.ts)}</td><td><span class="chip chip-${esc(l.channel)}">${esc(l.channel)}</span></td><td>${esc(l.action)}</td><td>${esc(l.detail)}</td></tr>`
+    ).join('');
+  } catch(e) { tbody.innerHTML = `<tr><td colspan="4">取得失敗: ${esc(e.message)}</td></tr>`; }
+}
+document.getElementById('demo-reset').addEventListener('click', async () => {
+  await fetch('/api/demo/reset', {method:'POST'});
+  load();
+});
+load();
+setInterval(load, 2000);
+</script>
+</body>
+</html>

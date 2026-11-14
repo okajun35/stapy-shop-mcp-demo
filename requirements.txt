@@ -1,0 +1,9 @@
+# stapy商店デモ 依存（pyproject.toml と同一バージョンに固定）
+fastapi==0.162.7
+mcp==2.3.0
+pydantic==2.14.3
+uvicorn==0.54.0
+# --- テスト用 ---
+httpx==0.28.1
+pytest==9.2.0
+playwright==1.60.0

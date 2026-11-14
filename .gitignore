@@ -1,0 +1,9 @@
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+.venv/
+*.pyc
+.pytest_cache/
+*:Zone.Identifier
+node_modules/

@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>stapy商店 — MCP App</title>
+<style>
+:root{--navy:#172b4d;--navy2:#244069;--sky:#dff4fe;--blue:#2584bb;--lime:#b7db33;--ink:#202e46;--muted:#64748b;--line:#dfe6ed;--bg:#f8fafd;--white:#fff;--shadow:0 9px 28px rgba(31,51,83,.07)}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;background:var(--bg)}
+button,input,select{font:inherit}button{cursor:pointer}img{display:block;max-width:100%}
+.app{max-width:980px;margin:0 auto;padding:10px 12px 20px}
+.app-bar{display:flex;align-items:center;gap:10px;background:var(--navy);color:#fff;border-radius:12px;padding:8px 14px;margin-bottom:10px;flex-wrap:wrap}
+.app-brand{font-weight:900;font-size:18px;white-space:nowrap}.app-brand small{font-weight:400;font-size:10px;opacity:.85;display:block;line-height:1}
+.search-row{display:flex;gap:6px;flex:1;min-width:220px}
+.search-row input[type=search]{flex:1;min-width:0;border:0;border-radius:999px;padding:7px 12px;font-size:12px}
+.search-row input[type=number]{width:88px;border:0;border-radius:999px;padding:7px 10px;font-size:12px}
+.search-row button{border:0;border-radius:999px;background:var(--lime);color:var(--navy);font-weight:800;padding:7px 14px;font-size:12px}
+.cart-chip{background:var(--lime);color:var(--navy);border-radius:999px;padding:6px 13px;font-weight:800;font-size:12px;border:0}
+.layout{display:grid;grid-template-columns:1fr 250px;gap:12px;align-items:start}
+@media (max-width:760px){.layout{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.pcard{background:#fff;border-radius:12px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;cursor:pointer;transition:transform .12s}
+.pcard:hover{transform:translateY(-2px)}
+.pcard img{width:100%;aspect-ratio:1.35;object-fit:cover;background:var(--sky)}
+.pcard .body{padding:8px 10px;display:flex;flex-direction:column;gap:3px;flex:1}
+.pcard h3{margin:0;font-size:13px;line-height:1.35}
+.pcard .desc{color:var(--muted);font-size:11px;flex:1}
+.pcard .price{font-weight:900;color:var(--navy);font-size:15px}
+.ptag{align-self:flex-start;background:var(--lime);color:var(--navy);font-size:10px;font-weight:800;border-radius:99px;padding:1px 8px}
+.addbtn{margin-top:6px;border:0;border-radius:8px;background:var(--blue);color:#fff;font-weight:700;padding:7px 8px;font-size:12px}
+.addbtn:hover{background:var(--navy2)}
+.cart-panel{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:12px;position:sticky;top:10px}
+.cart-panel h2{margin:0 0 8px;font-size:14px;color:var(--navy)}
+.cart-empty{color:var(--muted);font-size:12px;text-align:center;padding:14px 0}
+.citem{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px;align-items:center}
+.citem img{width:38px;height:38px;border-radius:8px;object-fit:cover}
+.citem .nm{flex:1;line-height:1.3}
+.citem .nm small{color:var(--muted);display:block}
+.citem button{border:1px solid var(--line);background:#fff;border-radius:6px;width:22px;height:22px;line-height:1;font-weight:800}
+.citem .rm{border:0;color:#b91c1c;width:auto;padding:0 4px}
+.ctotal{display:flex;justify-content:space-between;font-weight:900;font-size:15px;padding-top:9px;color:var(--navy)}
+.notice{border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12px;display:none}
+.notice.err{display:block;background:#fee2e2;color:#991b1b}
+.notice.ok{display:block;background:#dcfce7;color:#166534}
+.detail-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:10}
+.detail-backdrop.open{display:flex}
+.detail-card{background:#fff;border-radius:16px;max-width:560px;width:92%;max-height:86vh;overflow:auto;padding:18px}
+.detail-card img{width:100%;max-height:230px;object-fit:cover;border-radius:12px;background:var(--sky)}
+.detail-card h2{margin:10px 0 4px;font-size:19px;color:var(--navy)}
+.detail-card .price{font-size:19px;font-weight:900;color:var(--navy)}
+.feat{margin:8px 0;padding:0;list-style:none}
+.feat li{padding:3px 0 3px 18px;position:relative;font-size:12px}
+.feat li::before{content:"◆";position:absolute;left:0;color:var(--lime);font-size:10px;top:6px}
+.qtyrow{display:flex;align-items:center;gap:10px;margin:10px 0}
+.qtyrow button{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:#fff;font-weight:900;font-size:15px}
+.detail-actions{display:flex;gap:8px}
+.detail-actions .primary{flex:1;border:0;border-radius:10px;background:var(--lime);color:var(--navy);font-weight:900;padding:11px;font-size:13px}
+.detail-actions .close{border:1px solid var(--line);border-radius:10px;background:#fff;padding:11px 14px}
+.status-line{color:var(--muted);font-size:11px;padding:4px 2px}
+</style>
+</head>
+<body>
+<div class="app">
+ <div class="app-bar">
+  <div class="app-brand">stapy商店<small>MCP App — Start Python Club Shop</small></div>
+  <div class="search-row">
+   <input type="search" id="q" placeholder="商品を検索（例：LT、タイマー）" aria-label="検索">
+   <input type="number" id="maxprice" min="0" max="10000" step="100" placeholder="〜円" aria-label="価格上限">
+   <button id="search-btn" type="button">検索</button>
+  </div>
+  <button class="cart-chip" id="cart-chip" type="button">🛒 0点</button>
+ </div>
+ <div class="notice" id="notice"></div>
+ <div class="layout">
+  <div>
+   <div class="status-line" id="status">読み込み中…</div>
+   <div class="grid" id="grid"></div>
+  </div>
+  <aside class="cart-panel">
+   <h2>🛒 共有デモカート</h2>
+   <div id="cart-items"><div class="cart-empty">カートは空です</div></div>
+   <div class="ctotal"><span>合計</span><strong id="cart-total">¥0</strong></div>
+   <button class="addbtn" id="checkout-btn" type="button" style="margin-top:10px;width:100%">注文を確定する（デモ）</button>
+   <div class="status-line" style="text-align:center">実際の決済・発送は行われません</div>
+  </aside>
+ </div>
+</div>
+<div class="detail-backdrop" id="detail-backdrop"><div class="detail-card" id="detail-card"></div></div>
+<script type="module">
+/*__EXT_APPS_SDK__*/
+</script>
+<script type="module">
+const {App} = window.__StapyExtApps;
+const BASE = '__STAPY_BASE_URL__';
+const app = new App({name: 'stapy-shop', version: '1.0.0'});
+const $ = id => document.getElementById(id);
+const money = n => '¥' + Number(n).toLocaleString('ja-JP');
+const img = p => BASE + p.image;
+let lastCart = {items: [], total: 0, count: 0};
+
+function notice(msg, ok = false) {
+  const n = $('notice');
+  if (!msg) { n.className = 'notice'; n.textContent = ''; return; }
+  n.className = 'notice ' + (ok ? 'ok' : 'err');
+  n.textContent = msg;
+}
+function textOf(result) {
+  return (result.content || []).find(c => c.type === 'text')?.text || '';
+}
+function dataOf(result) {
+  if (result.isError) return {error: textOf(result) || 'ツール呼び出しエラー'};
+  const d = result.structuredContent;
+  if (d && typeof d === 'object') {
+    if (d.products || d.product || d.cart || d.items !== undefined || d.total !== undefined) return d;
+    if (typeof d.result === 'string') return {error: d.result};
+    return d;
+  }
+  const t = textOf(result);
+  return t ? {error: t} : {};
+}
+async function call(name, args = {}) {
+  try {
+    const result = await app.callServerTool({name, arguments: args});
+    return dataOf(result);
+  } catch (e) {
+    return {error: String(e && e.message || e)};
+  }
+}
+function renderCart(cart) {
+  if (!cart || cart.items === undefined) return;
+  lastCart = cart;
+  $('cart-chip').textContent = `🛒 ${cart.count}点`;
+  $('cart-total').textContent = money(cart.total);
+  if (!cart.items.length) { $('cart-items').innerHTML = '<div class="cart-empty">カートは空です</div>'; return; }
+  $('cart-items').innerHTML = cart.items.map(i => `
+    <div class="citem">
+     <img src="${BASE}${i.image}" alt="">
+     <div class="nm">${esc(i.name)}<small>${i.variant ? esc(i.variant) + ' / ' : ''}${money(i.price)}</small></div>
+     <button data-act="dec" data-key="${esc(i.key)}" aria-label="減らす">−</button>
+     <span>${i.qty}</span>
+     <button data-act="inc" data-key="${esc(i.key)}" aria-label="増やす">＋</button>
+     <button class="rm" data-act="rm" data-key="${esc(i.key)}">×</button>
+    </div>`).join('');
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function renderProducts(list, count) {
+  $('status').textContent = `全${count ?? list.length}件 — カードを選ぶと詳細、「＋カートに追加」でカートへ`;
+  $('grid').innerHTML = list.map(p => `
+   <article class="pcard" data-id="${esc(p.id)}">
+    <img src="${img(p)}" alt="${esc(p.name)}" loading="lazy">
+    <div class="body">
+     ${p.tag ? `<span class="ptag">${esc(p.tag)}</span>` : ''}
+     <h3>${esc(p.name)}</h3>
+     <div class="desc">${esc(p.desc)}</div>
+     <div class="price">${money(p.price)}</div>
+     <button class="addbtn" data-add="${esc(p.id)}">＋ カートに追加</button>
+    </div>
+   </article>`).join('');
+}
+async function doSearch() {
+  const q = $('q').value.trim();
+  const mp = $('maxprice').value;
+  $('status').textContent = '検索中…';
+  const d = await call('ui_search_products', {q, max_price: mp === '' ? null : Number(mp)});
+  if (d.error) { notice(d.error); $('status').textContent = 'エラー'; return; }
+  notice('');
+  renderProducts(d.products, d.count);
+}
+async function openDetail(id) {
+  const d = await call('ui_get_product', {product_id: id});
+  if (d.error || !d.product) { notice(d.error || '商品を取得できません'); return; }
+  const p = d.product;
+  let qty = 1;
+  $('detail-card').innerHTML = `
+   <img src="${img(p)}" alt="${esc(p.name)}">
+   <h2>${esc(p.name)}</h2>
+   <div class="price">${money(p.price)} <small style="font-weight:400;color:var(--muted)">（税込・架空 / 在庫${p.stock}）</small></div>
+   <p style="color:var(--muted);font-size:12px">${esc(p.desc)}</p>
+   <ul class="feat">${(p.features || []).map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+   ${p.variants ? `<div class="qtyrow">サイズ <select id="d-variant">${p.variants.map(v => `<option>${esc(v)}</option>`).join('')}</select></div>` : ''}
+   <div class="qtyrow">数量 <button id="d-minus">−</button><strong id="d-qty">1</strong><button id="d-plus">＋</button></div>
+   <div class="detail-actions">
+    <button class="primary" id="d-add">＋ カートに追加</button>
+    <button class="close" id="d-close">閉じる</button>
+   </div>`;
+  $('detail-backdrop').classList.add('open');
+  $('d-minus').onclick = () => { qty = Math.max(1, qty - 1); $('d-qty').textContent = qty; };
+  $('d-plus').onclick = () => { qty = Math.min(p.stock, qty + 1); $('d-qty').textContent = qty; };
+  $('d-close').onclick = () => $('detail-backdrop').classList.remove('open');
+  $('d-add').onclick = async () => {
+    const variant = $('d-variant') ? $('d-variant').value : '';
+    const d2 = await call('ui_add_to_cart', {product_id: p.id, qty, variant});
+    if (d2.error) { notice(d2.error); return; }
+    $('detail-backdrop').classList.remove('open');
+    renderCart(d2.cart);
+    notice(`「${p.name}」×${qty} をカートに追加しました`, true);
+    syncModelContext();
+  };
+}
+function syncModelContext() {
+  const c = lastCart;
+  const lines = (c.items || []).map(i => `- ${i.name} ×${i.qty}`).join('\n') || '（空）';
+  app.updateModelContext({content: [{type: 'text',
+    text: `stapy商店カート状態（共有デモ）:\n${lines}\n合計: ¥${c.total}（${c.count}点）`}]})
+    .catch(() => {});
+}
+// host → app のツール結果（モデルやホスト経由の呼び出し）
+app.ontoolresult = (result) => {
+  const d = dataOf(result);
+  if (d.error) { notice(d.error); return; }
+  notice('');
+  if (d.products) renderProducts(d.products, d.count);
+  if (d.product) openDetailData(d.product);
+  if (d.cart) renderCart(d.cart);
+  if (d.items !== undefined && d.total !== undefined) renderCart(d);
+};
+function openDetailData(p) {
+  // 既取得データで詳細モーダルを開く（ui_get_product を再呼びしない）
+  renderProductDetail(p);
+}
+function renderProductDetail(p) {
+  let qty = 1;
+  $('detail-card').innerHTML = `
+   <img src="${img(p)}" alt="${esc(p.name)}">
+   <h2>${esc(p.name)}</h2>
+   <div class="price">${money(p.price)} <small style="font-weight:400;color:var(--muted)">（税込・架空 / 在庫${p.stock}）</small></div>
+   <p style="color:var(--muted);font-size:12px">${esc(p.desc)}</p>
+   <ul class="feat">${(p.features || []).map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+   ${p.variants ? `<div class="qtyrow">サイズ <select id="d-variant">${p.variants.map(v => `<option>${esc(v)}</option>`).join('')}</select></div>` : ''}
+   <div class="qtyrow">数量 <button id="d-minus">−</button><strong id="d-qty">1</strong><button id="d-plus">＋</button></div>
+   <div class="detail-actions">
+    <button class="primary" id="d-add">＋ カートに追加</button>
+    <button class="close" id="d-close">閉じる</button>
+   </div>`;
+  $('detail-backdrop').classList.add('open');
+  $('d-minus').onclick = () => { qty = Math.max(1, qty - 1); $('d-qty').textContent = qty; };
+  $('d-plus').onclick = () => { qty = Math.min(p.stock, qty + 1); $('d-qty').textContent = qty; };
+  $('d-close').onclick = () => $('detail-backdrop').classList.remove('open');
+  $('d-add').onclick = async () => {
+    const variant = $('d-variant') ? $('d-variant').value : '';
+    const d2 = await call('ui_add_to_cart', {product_id: p.id, qty, variant});
+    if (d2.error) { notice(d2.error); return; }
+    $('detail-backdrop').classList.remove('open');
+    renderCart(d2.cart);
+    notice(`「${p.name}」×${qty} をカートに追加しました`, true);
+    syncModelContext();
+  };
+}
+// 初期化：browse_shop/search_products の結果が ontoolresult に届く。
+// 届く前に操作された場合のため、初期データを自分でも取りにいく。
+async function init() {
+  $('search-btn').onclick = doSearch;
+  $('q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+  $('grid').addEventListener('click', e => {
+    const add = e.target.closest('[data-add]');
+    if (add) { e.stopPropagation(); quickAdd(add.dataset.add); return; }
+    const cardEl = e.target.closest('.pcard');
+    if (cardEl) openDetail(cardEl.dataset.id);
+  });
+  $('cart-items').addEventListener('click', async e => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const item = (lastCart.items || []).find(i => i.key === b.dataset.key);
+    if (!item) return;
+    let d;
+    if (b.dataset.act === 'rm') d = await call('ui_remove_from_cart', {item_key: item.key});
+    else d = await call('ui_update_cart', {item_key: item.key, qty: item.qty + (b.dataset.act === 'inc' ? 1 : -1)});
+    if (d.error) { notice(d.error); return; }
+    renderCart(d.items !== undefined ? d : d.cart);
+    syncModelContext();
+  });
+  $('cart-chip').onclick = async () => {
+    const d = await call('ui_get_cart');
+    if (!d.error) renderCart(d);
+  };
+  $('checkout-btn').onclick = async () => {
+    if (!lastCart.items || !lastCart.items.length) { notice('カートが空です'); return; }
+    const d = await call('ui_confirm_order');
+    if (d.error) { notice(d.error); return; }
+    renderCart({items: [], total: 0, count: 0});
+    notice(`デモ注文を確定しました: ${d.order_no}（合計 ${money(d.total)}）※実際の決済・発送は行われません`, true);
+    syncModelContext();
+    app.updateModelContext({content: [{type: 'text',
+      text: `デモ注文確定: ${d.order_no} ${d.count}点 合計¥${d.total}（実際の決済・発送なし）`}]}).catch(() => {});
+  };
+  $('detail-backdrop').addEventListener('click', e => {
+    if (e.target === $('detail-backdrop')) $('detail-backdrop').classList.remove('open');
+  });
+  const c = await call('ui_get_cart');
+  if (!c.error) renderCart(c);
+}
+async function quickAdd(id) {
+  const d = await call('ui_add_to_cart', {product_id: id, qty: 1});
+  if (d.error) { notice(d.error); return; }
+  renderCart(d.cart);
+  notice('カートに追加しました', true);
+  syncModelContext();
+}
+init();
+app.connect();
+</script>
+</body>
+</html>

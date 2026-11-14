@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="stapy商店 デモ注文の確定画面。実際の注文・決済・発送は一切行われません。">
+<title>ご注文ありがとうございました（デモ） | stapy商店</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/shop.js" defer></script>
+<style>
+.order-wrap{max-width:760px;margin:34px auto 60px;padding:0 20px}
+.order-card{background:#fff;border-radius:18px;box-shadow:var(--shadow);overflow:hidden}
+.order-hero{background:var(--navy);color:#fff;text-align:center;padding:30px 20px 24px}
+.order-hero .check{display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:var(--lime);color:var(--navy);font-size:30px;font-weight:900;margin-bottom:10px}
+.order-hero h1{margin:0 0 4px;font-size:22px}
+.order-hero .ono{display:inline-block;margin-top:8px;background:rgba(255,255,255,.14);border-radius:99px;padding:4px 16px;font-weight:800;letter-spacing:.05em}
+.demo-warning{margin:18px 20px 0;border:2px dashed #f59e0b;background:#fffbeb;color:#92400e;border-radius:12px;padding:12px 16px;font-size:13px;font-weight:700;line-height:1.6;text-align:center}
+.order-body{padding:18px 22px 22px}
+.order-body h2{font-size:15px;color:var(--navy);margin:4px 0 10px}
+.oitem{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.oitem:last-of-type{border-bottom:0}
+.oitem img{width:46px;height:46px;border-radius:10px;object-fit:cover;background:var(--sky)}
+.oitem .nm{flex:1;line-height:1.35}
+.oitem .nm small{display:block;color:var(--muted)}
+.oitem .sub{font-weight:800;color:var(--navy);white-space:nowrap}
+.ototal{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid var(--navy);font-size:17px;font-weight:900;color:var(--navy)}
+.order-meta{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.7}
+.order-actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+.order-actions .button{flex:1;min-width:180px;text-align:center;text-decoration:none}
+.order-loading,.order-error{text-align:center;padding:40px 0;color:var(--muted)}
+.order-error{color:#b91c1c;font-weight:700}
+</style>
+</head>
+<body data-page="order-complete">
+<div id="site-header"></div>
+<div id="hero"></div>
+<main>
+ <div class="order-wrap">
+  <div class="order-card" id="order-card">
+   <div class="order-loading">注文情報を読み込み中…</div>
+  </div>
+ </div>
+</main>
+<div id="site-footer"></div>
+<div id="cart-root"></div>
+<div id="toast-region" class="toast-region" aria-live="polite"></div>
+<script>
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => '¥' + Number(n).toLocaleString('ja-JP');
+const CHANNEL_LABEL = {WEB:'WEB（画面操作）', MCP:'MCP（ツール呼出）', MCP_APPS:'MCP_APPS（アプリUI）', WEBMCP:'WEBMCP（ブラウザツール）'};
+async function load() {
+  const card = document.getElementById('order-card');
+  const orderNo = new URLSearchParams(location.search).get('order');
+  if (!orderNo) {
+    card.innerHTML = '<div class="order-error">注文番号が指定されていません。<br><a href="/">商品一覧へ戻る</a></div>';
+    return;
+  }
+  try {
+    const r = await fetch('/api/orders/' + encodeURIComponent(orderNo));
+    if (!r.ok) throw new Error('注文が見つかりません: ' + orderNo);
+    const o = await r.json();
+    card.innerHTML = `
+     <div class="order-hero">
+      <div class="check">✓</div>
+      <h1>ご注文を確定しました（デモ）</h1>
+      <div class="ono">注文番号 ${esc(o.order_no)}</div>
+     </div>
+     <div class="demo-warning">
+       ⚠ これは勉強会用の架空ECデモです。<br>
+       実際の注文・決済・発送・在庫確定は一切行われません。表示金額も架空です。
+     </div>
+     <div class="order-body">
+      <h2>ご注文内容</h2>
+      ${o.items.map(i => `
+       <div class="oitem">
+        <img src="${esc(i.image)}" alt="">
+        <div class="nm"><strong>${esc(i.name)}</strong><small>${i.variant ? 'サイズ：' + esc(i.variant) + ' / ' : ''}${money(i.price)} × ${i.qty}</small></div>
+        <div class="sub">${money(i.subtotal)}</div>
+       </div>`).join('')}
+      <div class="ototal"><span>合計（税込・架空）</span><strong>${money(o.total)}</strong></div>
+      <div class="order-meta">
+        注文日時：${esc(o.created_at)}<br>
+        確定経路：${esc(CHANNEL_LABEL[o.channel] || o.channel)}（操作ログに記録されています）<br>
+        カートは空になりました。次のデモへ進めます。
+      </div>
+      <div class="order-actions">
+       <a class="button button-primary" href="/">買い物を続ける（デモ）</a>
+       <a class="button" href="/logs.html">操作ログを見る</a>
+      </div>
+     </div>`;
+  } catch (e) {
+    card.innerHTML = `<div class="order-error">${esc(e.message)}<br><a href="/">商品一覧へ戻る</a></div>`;
+  }
+}
+load();
+</script>
+</body>
+</html>
