@@ -71,6 +71,37 @@ async function changeCartQty(key, delta) {
 function openCart(){document.body.classList.add('cart-open');document.getElementById('cart-close')?.focus();refreshCart();}
 function closeCart(){document.body.classList.remove('cart-open');}
 
+// 注文確定は2段階: preview で内容を提示 → モーダルで確認 → confirm で確定。
+// カート変更で提示(pending)はサーバー側で自動キャンセルされる。
+function showOrderConfirm(preview){
+  document.getElementById('order-confirm-backdrop')?.remove();
+  const el=document.createElement('div');
+  el.id='order-confirm-backdrop';
+  el.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:60;padding:20px';
+  const rows=preview.items.map(i=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px"><span>${i.name} ×${i.qty}</span><strong>${money(i.subtotal)}</strong></div>`).join('');
+  el.innerHTML=`<div role="dialog" aria-modal="true" style="background:#fff;border-radius:16px;box-shadow:var(--shadow);max-width:440px;width:100%;padding:20px 22px">
+   <h2 style="margin:0 0 4px;font-size:17px;color:var(--navy)">注文内容の確認（デモ）</h2>
+   <p style="margin:0 0 10px;font-size:11px;color:#92400e;background:#fffbeb;border:1px dashed #f59e0b;border-radius:8px;padding:6px 10px;font-weight:700">実際の注文・決済・発送は一切行われません</p>
+   ${rows}
+   <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:15px;font-weight:900;color:var(--navy)"><span>合計（税込・架空）</span><span>${money(preview.total)}</span></div>
+   <div style="display:flex;gap:10px;margin-top:14px">
+    <button type="button" id="order-cancel" class="button" style="flex:1">キャンセル</button>
+    <button type="button" id="order-confirm" class="button button-lime" style="flex:1">この内容で確定する</button>
+   </div></div>`;
+  document.body.append(el);
+  document.getElementById('order-cancel').addEventListener('click',()=>el.remove());
+  el.addEventListener('click',e=>{if(e.target===el)el.remove();});
+  document.getElementById('order-confirm').addEventListener('click',async()=>{
+    try {
+      const r = await api('/api/orders/confirm',{method:'POST'});
+      location.href = '/order_complete.html?order=' + encodeURIComponent(r.order_no);
+    } catch(e) {
+      el.remove();
+      toast(e.code==='no_pending_order' ? 'カートが変更されたため提示が無効になりました。もう一度確認してください' : ('注文確定に失敗しました: '+e.message));
+    }
+  });
+}
+
 function makeHeader(){document.getElementById('site-header').innerHTML=`<header class="topbar"><div class="topbar-inner"><a href="/" class="brand" aria-label="stapy商店 トップ">${snakeSvg('brand-mark')}<div><div class="brand-name">stapy商店<span class="brand-spark">〰</span></div><div class="brand-sub">Start Python Club Shop</div></div></a><nav class="primary-nav" aria-label="メインナビ"><a class="active" href="/">商品一覧</a><a href="/#main">カテゴリ</a><a href="/?featured=1">人気商品</a><a href="/detail.html?product=starter-bundle">特集・セット</a><a href="/logs.html">操作ログ</a></nav><form class="header-search" action="/" method="get" role="search">${svgIcon('search')}<input type="search" id="site-search" name="q" placeholder="商品を検索（例：LT、Tシャツ）" aria-label="商品を検索" autocomplete="off"></form><div class="header-tools"><button type="button" class="header-tool" id="demo-login" title="デモのためログイン不要">${svgIcon('user')}<span class="tool-label">ログイン</span></button><button type="button" class="header-tool" id="favorite-button" title="お気に入り">${svgIcon('heart')}<span class="tool-label">お気に入り</span></button><button type="button" class="header-tool" id="cart-button" title="カートを開く">${svgIcon('cart')}<span class="tool-label">カート</span><span class="cart-count">0</span></button></div></div></header><div class="demo-banner">これは勉強会用の非公式・架空ECデモです。実際の商品販売・決済・発送はありません。<button type="button" id="demo-reset" class="demo-reset-btn">↺ デモリセット</button></div>`;
  const heroEl=document.getElementById('hero');if(heroEl)heroEl.innerHTML=`<section class="hero"><div class="hero-inner">${snakeSvg('hero-mascot')}<div class="hero-message"><h2 class="hero-title">Start Python Club <span class="highlight">グッズ商店</span></h2><p class="hero-subtitle">Pythonをもっと楽しく、もっとつながる。20種類の架空グッズをご紹介。</p><span class="hero-note">stapy商店 — コミュニティを題材にしたECデモ</span></div><div class="hero-badges"><div class="round-badge dark"><span><span class="badge-small">START PYTHON CLUB</span><span class="badge-glyph">♧</span>PyCon 2026<br><span class="badge-small">in Hiroshima</span></span></div><div class="round-badge pizza"><span>Start<br>Python<br>Club<br><span class="badge-small">2026</span></span></div></div></div></section>`;
  document.getElementById('site-footer').innerHTML=`<footer class="footer"><div class="footer-inner"><div class="footer-title">${snakeSvg('')}<div><strong>stapy商店</strong><small>Start Python Club Shop / 架空のオンラインショップ</small></div></div><div class="footer-blurb"><span class="footer-icon">♧</span>Python好きの<br>コミュニティ</div><div class="footer-blurb"><span class="footer-icon">▣</span>5,000円以上で<br>送料無料（架空）</div><div class="footer-blurb"><span class="footer-icon">🎁</span>勉強会デモ向け<br>模擬商品20点</div></div><div class="footer-disclaimer">※ 非公式のデモサイトです。商品・価格・在庫・レビュー・配送条件はすべて架空です。Start Python Clubによる販売ではありません。</div></footer>`;
@@ -80,10 +111,10 @@ function makeHeader(){document.getElementById('site-header').innerHTML=`<header 
  document.getElementById('cart-close').addEventListener('click',closeCart);
  document.getElementById('mock-checkout').addEventListener('click',async()=>{
    try {
-     const r = await api('/api/orders',{method:'POST'});
-     location.href = '/order_complete.html?order=' + encodeURIComponent(r.order_no);
+     const preview = await api('/api/orders/preview',{method:'POST'});
+     showOrderConfirm(preview);
    } catch(e) {
-     toast(e.code==='cart_empty' ? 'カートが空です。商品を追加してから確定してください' : ('注文確定に失敗しました: '+e.message));
+     toast(e.code==='cart_empty' ? 'カートが空です。商品を追加してから確認してください' : ('注文確認に失敗しました: '+e.message));
    }
  });
  document.getElementById('demo-login').addEventListener('click',()=>toast('デモサイトのためログインは不要です'));
@@ -140,6 +171,7 @@ async function boot(){
     refreshCart,
     openCart,
     toast,
+    showOrderConfirm,
     applySearch(q, maxPrice){
       const s = document.getElementById('site-search');
       if (s) { s.value = q || ''; }

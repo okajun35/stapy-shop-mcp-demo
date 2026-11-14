@@ -199,7 +199,20 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
     @apps.tool(
         resource_uri=SHOP_UI_URI,
         visibility=["app"],
-        description="[MCP Apps UI専用] カート内容をデモ注文として確定する（実際の決済・発送は行われない）。",
+        description="[MCP Apps UI専用] カート内容を「注文内容の確認」として提示する（まだ確定しない）。",
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
+    )
+    def ui_preview_order(ctx: Context) -> dict[str, Any]:
+        _require_apps(ctx)
+        try:
+            return service.preview_order(DEMO_SESSION_ID, channel="MCP_APPS")
+        except ShopError as e:
+            _raise(e)
+
+    @apps.tool(
+        resource_uri=SHOP_UI_URI,
+        visibility=["app"],
+        description="[MCP Apps UI専用] ui_preview_order で提示した内容をデモ注文として確定する（実際の決済・発送は行われない）。",
         annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False),
     )
     def ui_confirm_order(ctx: Context) -> dict[str, Any]:
@@ -341,8 +354,29 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
 
     @mcp.tool(
         description=(
-            "共有デモカートの内容を「デモ注文」として確定する。"
-            "確定後カートは空になり、注文番号（STAPY-DEMO-xxxxx）と明細を返す。"
+            "共有デモカートの内容を「注文内容の確認」として提示する（第1段階）。"
+            "明細・合計をスナップショットした未確定注文（pending）を作り、内容を返す。"
+            "ユーザーが内容を確認したら confirm_order で確定する。"
+            "実際の決済・発送は行われない（勉強会デモ用）。"
+        ),
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
+        meta=_UI_META,
+    )
+    def preview_order() -> CallToolResult:
+        try:
+            order = service.preview_order(DEMO_SESSION_ID, channel="MCP")
+        except ShopError as e:
+            _raise(e)
+        lines = [f"注文内容の確認（未確定）: {order['order_no']}（{order['count']}点 合計 ¥{order['total']}）"]
+        lines += [f"- {i['name']} ×{i['qty']} = ¥{i['subtotal']}" for i in order["items"]]
+        lines.append("この内容でよければ confirm_order を実行してください（デモ。実際の決済・発送は行われません）")
+        return _result("\n".join(lines), order)
+
+    @mcp.tool(
+        description=(
+            "preview_order で提示した内容を「デモ注文」として確定する（第2段階）。"
+            "提示と同じスナップショットが確定され、確定後カートは空になる。"
+            "preview_order を先に実行すること。カートを変更すると提示はキャンセルされる。"
             "実際の決済・発送・在庫確定は一切行われない（勉強会デモ用の記録のみ）。"
         ),
         annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False),

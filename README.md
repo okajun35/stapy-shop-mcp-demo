@@ -14,8 +14,9 @@
 ビジネスロジックの重複実装はありません（インターフェースの違いを見せることが目的）。
 
 > 商用ECサイトではなく、15分で4方式の違いが分かる再現性のあるデモです。
-> 「注文確定」も**デモ注文の記録のみ**で、実際の決済・配送・在庫確定・顧客登録は
-> 一切行われません（確定画面にもその旨を明記しています）。
+> 「注文確定」は**提示（preview）→ 確定（confirm）の2段階**で、記録のみ。
+> 実際の決済・配送・在庫確定・顧客登録は一切行われません
+> （確認モーダル・確定画面にもその旨を明記しています）。
 
 ---
 
@@ -102,7 +103,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
                                     │          │
                  ┌──────────────────┴──┐   ┌───┴───────────┐
                  │  db.py (SQLite WAL) │   │ products.py   │
-                 │  cart_items, op_log │   │ 商品マスタ20件 │
+                 │cart_items,op_log,orders│ 商品マスタ20件 │
                  └─────────────────────┘   └───────────────┘
 ```
 
@@ -110,9 +111,9 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 |----------|------|
 | `stapy_shop/products.py` | 商品マスター20件＋7カテゴリ（products.js から移行。唯一の正本） |
 | `stapy_shop/service.py` | 共通サービス層。価格は常にマスターから取得 |
-| `stapy_shop/db.py` | SQLite（カート `cart_items`、操作ログ `op_log`）。RLock で再入安全 |
+| `stapy_shop/db.py` | SQLite（`cart_items`・`op_log`・`orders`）。RLock＋注文確定は1トランザクション |
 | `stapy_shop/api.py` | FastAPI。REST `/api/*`、静的ページ、MCP `/mcp` マウント |
-| `stapy_shop/mcp_server.py` | MCPツール16個 + Apps拡張 + `ui://stapy/shop.html` |
+| `stapy_shop/mcp_server.py` | MCPツール18個 + Apps拡張 + `ui://stapy/shop.html` |
 | `stapy_shop/mcp_app/shop_app.html` | MCP Apps UI（ext-apps SDK v2.0.4 バンドル埋込） |
 | `stapy_shop/static/index.html` `detail.html` `logs.html` | 既存画面＋ログビューア |
 | `stapy_shop/static/shop.js` | 既存ロジックをREST化（localStorage廃止） |
@@ -134,7 +135,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 | チャネル | 識別方法 | 信頼度 |
 |---------|---------|--------|
 | `MCP` | MCPツール関数が明示的に指定 | サーバー確定 |
-| `MCP_APPS` | `visibility=["app"]` の `ui_*` ツール + サーバー側で Apps拡張ネゴシエーション済みクライアントのみ許可（`_require_apps`） | サーバー検証済 |
+| `MCP_APPS` | `visibility=["app"]` の `ui_*` ツール + `_require_apps` で Apps拡張ネゴシエーション済みクライアントのみ許可 | ネゴシエーション検証済（※iframe内操作の証明ではない） |
 | `WEB` / `WEBMCP` | WebMCPツールの execute だけが付ける `X-Stapy-Channel: webmcp` ヘッダで分岐 | ブラウザ送信値（監査上の事実ではなくデモ用目印。README「制約」参照） |
 
 ---
@@ -154,9 +155,15 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 | `add_to_cart` | 商品をカートへ（価格はサーバーマスター） | 非readOnly・非idempotent | 同上 |
 | `update_cart` | 数量変更（`qty=0` で削除） | 非readOnly・idempotent | — |
 | `remove_from_cart` | カートから削除 | 非readOnly・destructive・idempotent | — |
-| `confirm_order` | カートをデモ注文として確定（実決済・発送なし、確定後カートは空に） | 非readOnly・destructive・非idempotent | `ui://stapy/shop.html` |
+| `preview_order` | カート内容を「注文内容の確認」として提示（pending。まだ確定しない） | 非readOnly・非idempotent | `ui://stapy/shop.html` |
+| `confirm_order` | preview で提示した内容をデモ注文として確定（確定後カートは空に） | 非readOnly・destructive・非idempotent | `ui://stapy/shop.html` |
 | `browse_shop` | 対話ショップUIを開く | readOnly | `ui://stapy/shop.html` |
 | `reset_demo` | カートを空にして初期状態へ | destructive・idempotent | — |
+
+注文確定は**2段階**です：`preview_order` が提示時点の明細・合計を pending
+注文として保存し、`confirm_order` がそのスナップショットを原子的に確定
+（pending確定＋カート空化は1トランザクション）。**preview 後にカートを
+変更すると pending は自動キャンセル**され、提示と違う内容は確定できません。
 
 全ツール `CallToolResult` で `content`（日本語テキスト＝モデル向け）と
 `structuredContent`（構造化データ＝UI向け）の両方を返すため、
@@ -165,12 +172,15 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 ### MCP Apps UI専用ツール（`visibility=["app"]`、channel=MCP_APPS）
 
 `ui_search_products` / `ui_get_product` / `ui_get_cart` / `ui_add_to_cart` /
-`ui_update_cart` / `ui_remove_from_cart` / `ui_confirm_order`
+`ui_update_cart` / `ui_remove_from_cart` / `ui_preview_order` / `ui_confirm_order`
 
 - 仕様上ホストはこれらをモデルのツール一覧に含めず、UI iframe からのみ呼ぶ想定。
 - サーバー側でも `client_supports_apps()` を検査し、Apps 拡張をネゴシエートした
-  クライアント以外からの呼び出しを `[forbidden]` で拒否しています
-  （`visibility` は表示制御でありアクセス制御ではないため、経路識別の信頼性を補強）。
+  クライアント以外からの呼び出しを `[forbidden]` で拒否しています。
+- 正確には `MCP_APPS` ログは「**Apps対応をネゴシエートしたクライアント経由**」を
+  意味します。iframe 内からの操作であることの証明ではありません（宣言だけで
+  呼べるため）。`visibility` は表示制御でありアクセス制御ではないため、
+  経路識別の信頼性をサーバー側のネゴシエーション検査で補強しています。
 
 ### MCP Apps リソース
 
@@ -194,7 +204,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 | MCP Inspector | 2.15.0 | ✅ **MCP Apps 実描画・実操作を確認** |
 | Chromium（snap） | 156.0.8078.47 | ✅ **WebMCP 登録・executeTool 実呼出を確認** |
 | Google Chrome | 144.0.7559.59 | ✅ 通常Web + WebMCP非対応フォールバック確認 |
-| Playwright | 1.60.0 | ✅ E2E 36項目 PASS |
+| Playwright | 1.60.0 | ✅ E2E 40項目 PASS |
 
 ### MCP Apps 対応ホスト
 
@@ -210,7 +220,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 
 - **検証済**: Chromium 156.0.8078.47（snap）+ フラグ
   `--enable-experimental-web-platform-features`（`WebMCPTesting,WebMCP` のみでも可）。
-  `document.modelContext.getTools()` で7ツール、`executeTool()` で実呼出・画面反映を確認。
+  `document.modelContext.getTools()` で8ツール、`executeTool()` で実呼出・画面反映を確認。
 - **非対応**: Google Chrome 144（上記フラグでも `document.modelContext` は未定義）。
   非対応でも通常のEC機能はそのまま動きます（プログレッシブエンハンスメント、E2E確認済）。
 - WebMCP は **ドラフト仕様（W3C Community Group Report）** であり、API・対応ブラウザは
@@ -235,10 +245,10 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 ## 6. テスト
 
 ```bash
-# バックエンド（66件: カタログ/検索/カート/注文確定/バリデーション/同時実行/ログ/REST/ページ）
+# バックエンド（72件: カタログ/検索/カート/注文2段階/バリデーション/同時実行/ログ/REST/ページ）
 .venv/bin/python -m pytest tests/ -q
 
-# ブラウザE2E（36件: WEB / WEBMCP実呼出 / 注文確定フロー / 非対応フォールバック）
+# ブラウザE2E（40件: WEB / WEBMCP実呼出 / 注文2段階フロー / 非対応フォールバック）
 .venv/bin/python tests/e2e.py        # サーバー起動中に実行
 
 # 4方式統合（同一シナリオが全経路で同一カート＋同一注文確定になること）
@@ -247,8 +257,8 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 
 最新の実行結果（この環境での実測）：
 
-- `pytest`: **66 passed**
-- `tests/e2e.py`: **36/36 PASS**
+- `pytest`: **72 passed**
+- `tests/e2e.py`: **40/40 PASS**
 - `tests/four_way.py`: **4方式とも ¥2,700 で一致 + 注文確定（STAPY-DEMO-xxxxx）も4経路で記録 + 4チャネルのログ記録を確認**
 - MCP Inspector 2.15.0 での MCP Apps 実描画・UI操作を確認
 - 詳細は `docs/test_results.md`

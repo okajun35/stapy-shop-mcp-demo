@@ -53,7 +53,8 @@ def via_web():
     api("/api/products?q=LT&max_price=3000")
     api("/api/cart/items", "POST", {"product_id": "lt-timer", "qty": 1})
     cart = api("/api/cart/items", "POST", {"product_id": "sticker-set", "qty": 1})
-    order = api("/api/orders", "POST")
+    api("/api/orders/preview", "POST")
+    order = api("/api/orders/confirm", "POST")
     return cart_sig(cart), order
 
 
@@ -68,6 +69,8 @@ async def via_mcp():
         await client.call_tool("add_to_cart", {"product_id": "sticker-set", "qty": 1})
         r = await client.call_tool("get_cart", {})
         sig = cart_sig(r.structured_content)
+        p = await client.call_tool("preview_order", {})
+        assert not p.is_error, p.content[0].text
         o = await client.call_tool("confirm_order", {})
         assert not o.is_error, o.content[0].text
         return sig, o.structured_content
@@ -87,6 +90,8 @@ async def via_mcp_apps():
         await client.call_tool("ui_add_to_cart", {"product_id": "sticker-set", "qty": 1})
         r = await client.call_tool("ui_get_cart", {})
         sig = cart_sig(r.structured_content)
+        p = await client.call_tool("ui_preview_order", {})
+        assert not p.is_error, p.content[0].text
         o = await client.call_tool("ui_confirm_order", {})
         assert not o.is_error, o.content[0].text
         return sig, o.structured_content
@@ -126,7 +131,13 @@ def via_webmcp():
             return await document.modelContext.executeTool(t, {});
         }""")
         sig = cart_sig(json.loads(out))
-        # confirm_order は画面を確定ページへ遷移させる（返り値は遷移前に得られる）
+        # preview → confirm の2段階（confirm は画面を確定ページへ遷移させる）
+        out = page.evaluate("""async () => {
+            const ts = await document.modelContext.getTools();
+            const t = ts.find(t => t.name === 'preview_order');
+            return await document.modelContext.executeTool(t, {});
+        }""")
+        assert json.loads(out)["status"] == "pending"
         out = page.evaluate("""async () => {
             const ts = await document.modelContext.getTools();
             const t = ts.find(t => t.name === 'confirm_order');

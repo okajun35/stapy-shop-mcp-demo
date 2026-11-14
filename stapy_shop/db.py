@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS orders (
     items_json TEXT NOT NULL,
     total      INTEGER NOT NULL,
     channel    TEXT NOT NULL DEFAULT 'WEB',
+    status     TEXT NOT NULL DEFAULT 'confirmed',
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 """
@@ -47,6 +48,10 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
+        # 既存DBへの後付けカラム（status が無い古い orders テーブル用）
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(orders)")}
+        if "status" not in cols:
+            self._conn.execute("ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
         self._conn.commit()
         # RLock: add_to_cart がロック保持中に upsert_item 等を呼ぶため再入可能にする
         self._lock = threading.RLock()
@@ -118,24 +123,83 @@ class Database:
         return [dict(r) for r in cur.fetchall()]
 
     # --- orders（デモ注文。実決済・発送は行われない）------------------------
-    def create_order(self, session_id: str, items_json: str, total: int, channel: str) -> str:
-        """注文レコードを作成し order_no を返す。番号は STAPY-DEMO-xxxxx 連番。"""
+    def _issue_order_no(self, lastrowid: int) -> str:
+        order_no = f"STAPY-DEMO-{lastrowid:05d}"
+        self._conn.execute(
+            "UPDATE orders SET order_no = ? WHERE id = ?", (order_no, lastrowid)
+        )
+        return order_no
+
+    def create_pending_order(self, session_id: str, items_json: str, total: int, channel: str) -> str:
+        """提示用の未確定注文（status='pending'）を作成し order_no を返す。
+        同一セッションの古い pending は同じロック内で cancelled にする。"""
         with self._lock:
+            self._conn.execute(
+                "UPDATE orders SET status = 'cancelled' WHERE session_id = ? AND status = 'pending'",
+                (session_id,),
+            )
             cur = self._conn.execute(
-                "INSERT INTO orders (order_no, session_id, items_json, total, channel) "
-                "VALUES ('', ?, ?, ?, ?)",
+                "INSERT INTO orders (order_no, session_id, items_json, total, channel, status) "
+                "VALUES ('', ?, ?, ?, ?, 'pending')",
                 (session_id, items_json, total, channel),
             )
-            order_no = f"STAPY-DEMO-{cur.lastrowid:05d}"
+            order_no = self._issue_order_no(cur.lastrowid)
+            self._conn.commit()
+            return order_no
+
+    def get_pending_order(self, session_id: str) -> dict | None:
+        cur = self._conn.execute(
+            "SELECT order_no, items_json, total, channel, status, created_at "
+            "FROM orders WHERE session_id = ? AND status = 'pending' "
+            "ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def confirm_pending_order(self, session_id: str) -> dict | None:
+        """pending 注文を confirmed にし、同じトランザクションでカートを空にする。
+        ロックをまたがないので二重確定・明細不一致を防ぐ。"""
+        with self._lock:
+            pending = self.get_pending_order(session_id)
+            if pending is None:
+                return None
             self._conn.execute(
-                "UPDATE orders SET order_no = ? WHERE id = ?", (order_no, cur.lastrowid)
+                "UPDATE orders SET status = 'confirmed' WHERE order_no = ?",
+                (pending["order_no"],),
             )
+            self._conn.execute(
+                "DELETE FROM cart_items WHERE session_id = ?", (session_id,)
+            )
+            self._conn.commit()
+            pending["status"] = "confirmed"
+            return pending
+
+    def cancel_pending_orders(self, session_id: str) -> int:
+        """カート内容が変わったら pending を無効化（提示と違う内容を確定させない）。"""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE orders SET status = 'cancelled' WHERE session_id = ? AND status = 'pending'",
+                (session_id,),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def create_order(self, session_id: str, items_json: str, total: int, channel: str) -> str:
+        """即時確定の注文レコードを作成し order_no を返す（テスト・内部用）。"""
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO orders (order_no, session_id, items_json, total, channel, status) "
+                "VALUES ('', ?, ?, ?, ?, 'confirmed')",
+                (session_id, items_json, total, channel),
+            )
+            order_no = self._issue_order_no(cur.lastrowid)
             self._conn.commit()
             return order_no
 
     def get_order(self, order_no: str) -> dict | None:
         cur = self._conn.execute(
-            "SELECT order_no, session_id, items_json, total, channel, created_at "
+            "SELECT order_no, session_id, items_json, total, channel, status, created_at "
             "FROM orders WHERE order_no = ?",
             (order_no,),
         )

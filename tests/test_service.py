@@ -155,35 +155,80 @@ class TestCart:
 
 
 class TestOrders:
-    def test_confirm_order(self, service):
+    def test_preview_then_confirm(self, service):
+        """2段階: preview で提示 → confirm で確定＋カート空化。"""
         service.add_to_cart("lt-timer", 1)
         service.add_to_cart("sticker-set", 2)
+        p = service.preview_order(DEMO_SESSION_ID, channel="MCP")
+        assert p["status"] == "pending"
+        assert p["order_no"].startswith("STAPY-DEMO-")
+        assert p["total"] == 3100 and p["count"] == 3
+        # preview 時点ではカートは残る・何も確定されない
+        assert service.get_cart()["count"] == 3
         o = service.confirm_order(DEMO_SESSION_ID, channel="MCP")
-        assert o["order_no"].startswith("STAPY-DEMO-")
+        assert o["order_no"] == p["order_no"] and o["status"] == "confirmed"
         assert o["total"] == 3100 and o["count"] == 3 and o["demo"] is True
-        assert len(o["items"]) == 2
-        # 確定後カートは空
         assert service.get_cart()["items"] == []
-        # 参照
         got = service.get_order(o["order_no"])
-        assert got["total"] == 3100 and got["channel"] == "MCP"
+        assert got["total"] == 3100 and got["channel"] == "MCP" and got["status"] == "confirmed"
 
-    def test_confirm_empty_cart(self, service):
+    def test_confirm_without_preview(self, service):
+        """preview なしの confirm はエラー（承認なしでは確定しない）。"""
+        service.add_to_cart("lt-timer", 1)
         with pytest.raises(ShopError) as e:
             service.confirm_order()
+        assert e.value.code == "no_pending_order"
+
+    def test_cart_mutation_cancels_pending(self, service):
+        """提示後にカートを変更すると pending は無効化される。"""
+        service.add_to_cart("lt-timer", 1)
+        service.preview_order()
+        service.add_to_cart("sticker-set", 1)  # 提示後のカート変更
+        with pytest.raises(ShopError) as e:
+            service.confirm_order()
+        assert e.value.code == "no_pending_order"
+        # 再提示すれば新しい内容で確定できる
+        p2 = service.preview_order()
+        assert p2["total"] == 2700
+        o = service.confirm_order()
+        assert o["total"] == 2700 and o["status"] == "confirmed"
+
+    def test_reset_cancels_pending(self, service):
+        service.add_to_cart("mug", 1)
+        service.preview_order()
+        service.reset_demo()
+        with pytest.raises(ShopError) as e:
+            service.confirm_order()
+        assert e.value.code == "no_pending_order"
+
+    def test_preview_empty_cart(self, service):
+        with pytest.raises(ShopError) as e:
+            service.preview_order()
         assert e.value.code == "cart_empty"
 
+    def test_repreview_replaces_pending(self, service):
+        """再 preview は古い pending を置き換え、確定は新しい方になる。"""
+        service.add_to_cart("mug", 1)
+        p1 = service.preview_order()
+        p2 = service.preview_order()
+        assert p1["order_no"] != p2["order_no"]
+        o = service.confirm_order()
+        assert o["order_no"] == p2["order_no"]
+
     def test_order_price_from_master(self, service):
-        """注文の価格・合計は確定時点の商品マスターから再計算される。"""
+        """注文の価格・合計は提示時点の商品マスターから計算される。"""
         service.add_to_cart("sticker-set", 1)
+        service.preview_order()
         o = service.confirm_order()
         item = o["items"][0]
         assert item["price"] == 400 and item["subtotal"] == 400 and o["total"] == 400
 
     def test_order_logged(self, service):
         service.add_to_cart("mug", 1)
+        p = service.preview_order(DEMO_SESSION_ID, channel="WEBMCP")
         o = service.confirm_order(DEMO_SESSION_ID, channel="WEBMCP")
-        logs = service.operation_logs(5)
+        logs = service.operation_logs(10)
+        assert any(l["action"] == "preview_order" and l["channel"] == "WEBMCP" for l in logs)
         assert any(l["action"] == "confirm_order" and l["channel"] == "WEBMCP"
                    and o["order_no"] in l["detail"] for l in logs)
 

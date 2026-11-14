@@ -54,6 +54,7 @@ _STATUS = {
     "invalid_input": 400,
     "cart_empty": 409,
     "out_of_stock": 409,
+    "no_pending_order": 409,
 }
 
 
@@ -165,9 +166,16 @@ def api_demo_logs(limit: int = Query(default=100, ge=1, le=500)):
     return {"logs": service.operation_logs(limit)}
 
 
-# デモ注文確定。実際の決済・発送・在庫確定は行われない（記録のみ）。
-@app.post("/api/orders")
-def api_order_create(request: Request):
+# デモ注文の2段階フロー。実際の決済・発送・在庫確定は行われない（記録のみ）。
+# preview で内容を提示（pending 保存）→ confirm で確定＋カート空化。
+# カート変更で pending は自動キャンセルされる。
+@app.post("/api/orders/preview")
+def api_order_preview(request: Request):
+    return service.preview_order(_session(request), channel=_channel(request))
+
+
+@app.post("/api/orders/confirm")
+def api_order_confirm(request: Request):
     return service.confirm_order(_session(request), channel=_channel(request))
 
 

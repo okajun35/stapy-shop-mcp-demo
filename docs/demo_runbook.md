@@ -51,8 +51,10 @@ npx -y @modelcontextprotocol/inspector@2.15.0   # Inspector 起動（http://127.
 4. 「＋ カートに追加」×1 → バッジ 1
 5. 一覧に戻りステッカーセットも追加 → バッジ 2、🛒 で **¥2,700**
 6. ページをリロード → **カートが残る**（サーバー側管理の証拠）
-7. 🛒 →「注文を確認する（デモ）」→ **注文確定画面へ遷移**
+7. 🛒 →「注文を確認する（デモ）」→ **確認モーダル**（明細・合計・デモ明記）
+   →「この内容で確定する」→ **注文確定画面へ遷移**
    （`STAPY-DEMO-xxxxx`、デモ明記の警告バナー、確定後カートは空）
+   → 「提示→確定の2段階です。確定ツールが呼ばれても即実行されません」
 
 **言いポイント**: 「カートはもう localStorage ではありません。
 サーバー SQLite なので、これから他の3方式が同じカートを触ります」
@@ -67,8 +69,10 @@ Inspector（`http://127.0.0.1:6274`）で stapy-shop → 「Tools」タブ：
    → **テキストで3件返る**（UIがなくても検索できる）
 3. `add_to_cart` `{product_id:"lt-timer",qty:1}` → `add_to_cart` `{product_id:"sticker-set",qty:1}`
 4. `get_cart` → **「カート: 2点 合計 ¥2700」**
-5. `confirm_order` → 注文番号 `STAPY-DEMO-xxxxx` と明細が返る（デモ注文の記録のみ）
-6. `logs.html` で channel=MCP の行を見せる
+5. `preview_order` → 明細・合計・「この内容でよければ confirm_order」が返る（まだ未確定）
+6. `confirm_order` → 注文番号 `STAPY-DEMO-xxxxx` で確定（デモ注文の記録のみ）
+   → 「**提示→確定の2段階**です。preview 後にカートを変えると提示はキャンセルされます」
+7. `logs.html` で channel=MCP の行を見せる
 
 **言いポイント**: 「UIはゼロ。JSONと日本語テキストだけで買い物が完結します」
 
@@ -82,7 +86,8 @@ Inspector の「**Apps**」タブ：
    → iframe内で `ui_search_products` が走りカードが絞り込まれる
 3. 商品カード → 詳細モーダル → 数量「＋」→「＋ カートに追加」
    → iframe内のカートパネルが即更新（**合計¥2,700になるまで操作**）
-4. カートパネル下の「注文を確定する（デモ）」→ `ui_confirm_order` が走り
+4. カートパネル下の「注文を確定する（デモ）」→ `ui_preview_order` →
+   UI内に確認モーダル →「この内容で確定する」→ `ui_confirm_order` で
    注文番号がUI内に表示される（カートは空に）
 5. 通常MCPの `get_cart`（Toolsタブ）でカートが空になったことを確認
    → 「**同じカート**です」
@@ -100,7 +105,7 @@ Chromium を WebMCP 有効で起動（発表用の手順）：
 /snap/bin/chromium --enable-experimental-web-platform-features http://127.0.0.1:8000/
 ```
 
-ヘッダーバナーに `WebMCP: 7ツール公開中` のバッジが出る。
+ヘッダーバナーに `WebMCP: 8ツール公開中` のバッジが出る。
 
 1. DevTools コンソールでエージェント相当の呼び出しを実演：
 
@@ -116,6 +121,9 @@ await document.modelContext.executeTool(a, {product_id:'sticker-set', qty:1});
 const c = tools.find(t => t.name === 'get_cart');
 await document.modelContext.executeTool(c, {});
 // → total: 2700
+const pv = tools.find(t => t.name === 'preview_order');
+await document.modelContext.executeTool(pv, {});
+// → 画面に注文確認モーダルが開く（AIの提示が人間の画面にも出る）
 const o = tools.find(t => t.name === 'confirm_order');
 await document.modelContext.executeTool(o, {});
 // → 注文番号が返り、画面は自動で注文確定ページ（デモ明記）へ遷移

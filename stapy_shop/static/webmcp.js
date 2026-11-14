@@ -155,13 +155,26 @@ const tools = [
     },
   },
   {
+    name: 'preview_order',
+    title: '注文内容を確認（デモ）',
+    description: 'カート内容を「注文内容の確認」として提示します（まだ確定しません）。画面に確認モーダルも表示されます。実際の決済・発送は行われません。',
+    inputSchema: {type: 'object', properties: {}},
+    annotations: {readOnlyHint: false, consequentialHint: false},
+    execute: async () => {
+      const preview = await agentApi('/api/orders/preview', {method: 'POST'});
+      // AIが提示した内容が画面にも見えるよう、既存の確認モーダルを開く
+      window.__stapy.showOrderConfirm?.(preview);
+      return preview;
+    },
+  },
+  {
     name: 'confirm_order',
     title: '注文を確定（デモ）',
-    description: 'カート内容をデモ注文として確定します。確定後カートは空になり、画面は注文確定ページへ遷移します。実際の決済・発送は行われません。',
+    description: 'preview_order で提示した内容をデモ注文として確定します（先に preview_order が必要）。確定後カートは空になり、画面は注文確定ページへ遷移します。実際の決済・発送は行われません。',
     inputSchema: {type: 'object', properties: {}},
     annotations: {readOnlyHint: false, consequentialHint: true},
     execute: async () => {
-      const order = await agentApi('/api/orders', {method: 'POST'});
+      const order = await agentApi('/api/orders/confirm', {method: 'POST'});
       // AIの確定結果が画面にも見えるよう、既存の確定ページへ遷移する
       location.href = '/order_complete.html?order=' + encodeURIComponent(order.order_no);
       return order;

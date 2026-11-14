@@ -59,6 +59,10 @@ async function load() {
     const r = await fetch('/api/orders/' + encodeURIComponent(orderNo));
     if (!r.ok) throw new Error('注文が見つかりません: ' + orderNo);
     const o = await r.json();
+    if (o.status !== 'confirmed') {
+      card.innerHTML = `<div class="order-error">この注文はまだ確定されていません（status: ${esc(o.status)}）。<br>カートで注文内容を確認し、確定操作を行ってください。<br><a href="/">商品一覧へ戻る</a></div>`;
+      return;
+    }
     card.innerHTML = `
      <div class="order-hero">
       <div class="check">✓</div>

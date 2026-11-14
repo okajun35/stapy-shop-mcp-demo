@@ -94,14 +94,18 @@ class TestCartApi:
         assert r.status_code == 200
         assert r.json()["items"] == []
 
-    def test_order_confirm(self, client):
-        """デモ注文確定: 明細スナップショット・注文番号・カート空化・GET参照。"""
+    def test_order_two_phase(self, client):
+        """デモ注文2段階: preview(提示) → confirm(確定) → カート空化・GET参照。"""
         client.post("/api/cart/items", json={"product_id": "lt-timer", "qty": 1})
         client.post("/api/cart/items", json={"product_id": "sticker-set", "qty": 1})
-        r = client.post("/api/orders")
+        p = client.post("/api/orders/preview").json()
+        assert p["status"] == "pending" and p["total"] == 2700
+        # preview 時点ではカートは残る
+        assert client.get("/api/cart").json()["count"] == 2
+        r = client.post("/api/orders/confirm")
         assert r.status_code == 200
         o = r.json()
-        assert o["order_no"].startswith("STAPY-DEMO-")
+        assert o["order_no"].startswith("STAPY-DEMO-") and o["status"] == "confirmed"
         assert o["total"] == 2700 and o["count"] == 2 and o["demo"] is True
         assert len(o["items"]) == 2
         # 価格はサーバーマスター由来
@@ -114,10 +118,22 @@ class TestCartApi:
         assert r2.status_code == 200
         assert r2.json()["total"] == 2700 and r2.json()["channel"] == "WEB"
 
-    def test_order_confirm_empty_cart(self, client):
-        r = client.post("/api/orders")
+    def test_order_confirm_without_preview(self, client):
+        client.post("/api/cart/items", json={"product_id": "mug", "qty": 1})
+        r = client.post("/api/orders/confirm")
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "no_pending_order"
+
+    def test_order_preview_empty_cart(self, client):
+        r = client.post("/api/orders/preview")
         assert r.status_code == 409
         assert r.json()["error"]["code"] == "cart_empty"
+
+    def test_order_mutation_cancels_preview(self, client):
+        client.post("/api/cart/items", json={"product_id": "mug", "qty": 1})
+        client.post("/api/orders/preview")
+        client.post("/api/cart/items", json={"product_id": "sticker-set", "qty": 1})
+        assert client.post("/api/orders/confirm").status_code == 409
 
     def test_order_not_found(self, client):
         assert client.get("/api/orders/STAPY-DEMO-99999").status_code == 404

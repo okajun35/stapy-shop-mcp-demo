@@ -122,10 +122,14 @@ def test_web(p):
     report("リロード後もカート維持", api("/api/cart")["count"] >= 1,
            f"{api('/api/cart')['count']}点")
 
-    # 注文確定（デモ）→ 確定画面へ遷移
+    # 注文確定（デモ）2段階: ボタン → 確認モーダル → 確定 → 確定画面へ遷移
     page.locator("#cart-button").click()
     page.wait_for_timeout(600)
     page.locator("#mock-checkout").click()
+    page.wait_for_timeout(600)
+    report("注文確認: モーダル表示", page.locator("#order-confirm-backdrop").count() == 1)
+    report("注文確認: デモ明記", "実際の注文・決済・発送は一切行われません" in page.locator("#order-confirm-backdrop").inner_text())
+    page.locator("#order-confirm").click()
     page.wait_for_url("**/order_complete.html**", timeout=8000)
     page.wait_for_timeout(800)
     report("注文確定: 確定画面へ遷移", "order=" in page.url, page.url)
@@ -157,8 +161,8 @@ def test_webmcp(p):
     report("WebMCP API存在", page.evaluate("typeof document.modelContext") == "object")
     tools = page.evaluate("async () => (await document.modelContext.getTools()).map(t => t.name)")
     expect = {"search_products", "get_product", "get_cart", "add_to_cart",
-              "update_cart", "remove_from_cart", "confirm_order"}
-    report("7ツール登録", expect <= set(tools), str(sorted(tools)))
+              "update_cart", "remove_from_cart", "preview_order", "confirm_order"}
+    report("8ツール登録", expect <= set(tools), str(sorted(tools)))
     report("WebMCPバッジ表示", page.locator(".webmcp-badge").count() == 1)
 
     # AIがツールを実行 → 画面に反映
@@ -191,7 +195,17 @@ def test_webmcp(p):
     }""")
     report("AIカート確認", json.loads(out)["total"] == 2300)
 
-    # AIが注文確定 → 画面も確定ページへ遷移
+    # AIが注文提示 → 画面に確認モーダル → AIが確定 → 確定ページへ遷移
+    out = page.evaluate("""async () => {
+        const ts = await document.modelContext.getTools();
+        const t = ts.find(t => t.name === 'preview_order');
+        return await document.modelContext.executeTool(t, {});
+    }""")
+    preview = json.loads(out)
+    report("AI注文提示(pending)", preview["status"] == "pending" and preview["order_no"].startswith("STAPY-DEMO-"))
+    page.wait_for_timeout(600)
+    report("AI提示→画面に確認モーダル", page.locator("#order-confirm-backdrop").count() == 1)
+
     out = page.evaluate("""async () => {
         const ts = await document.modelContext.getTools();
         const t = ts.find(t => t.name === 'confirm_order');
@@ -208,7 +222,8 @@ def test_webmcp(p):
     # ログに WEBMCP で記録されているか
     logs = api("/api/demo/logs?limit=10")["logs"]
     report("ログにWEBMCP記録", any(l["channel"] == "WEBMCP" for l in logs))
-    report("ログにconfirm_order記録", any(l["action"] == "confirm_order" for l in logs))
+    report("ログにpreview/confirm記録", any(l["action"] == "preview_order" for l in logs)
+           and any(l["action"] == "confirm_order" for l in logs))
     report("JSエラーなし", not errors, "; ".join(errors[:3]))
     page.screenshot(path="/tmp/e2e_webmcp.png", full_page=False)
     browser.close()

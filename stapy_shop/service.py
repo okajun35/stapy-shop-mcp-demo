@@ -197,6 +197,7 @@ class ShopService:
                     f"カート内{existing}＋追加{qty}）",
                 )
             self.db.upsert_item(session_id, key, product_id, variant, new_qty)
+            self.db.cancel_pending_orders(session_id)  # 提示済み内容とカートが乖離しないよう pending を無効化
         self.db.log(
             channel,
             "add_to_cart",
@@ -228,9 +229,11 @@ class ShopService:
                 "out_of_stock",
                 f"在庫が足りません: {product['name']}（在庫{product['stock']}、指定{qty}）",
             )
-        if self.db.get_item_qty(session_id, item_key) == 0:
-            raise ShopError("item_not_found", f"カートに商品がありません: {item_key}")
-        self.db.upsert_item(session_id, item_key, product_id, variant, qty)
+        with self.db._lock:
+            if self.db.get_item_qty(session_id, item_key) == 0:
+                raise ShopError("item_not_found", f"カートに商品がありません: {item_key}")
+            self.db.upsert_item(session_id, item_key, product_id, variant, qty)
+            self.db.cancel_pending_orders(session_id)
         self.db.log(channel, "update_cart", f"{product['name']} → ×{qty}", session_id)
         return self.get_cart(session_id)
 
@@ -240,8 +243,10 @@ class ShopService:
         session_id: str = DEMO_SESSION_ID,
         channel: Channel = "WEB",
     ) -> dict:
-        if not self.db.delete_item(session_id, item_key):
-            raise ShopError("item_not_found", f"カートに商品がありません: {item_key}")
+        with self.db._lock:
+            if not self.db.delete_item(session_id, item_key):
+                raise ShopError("item_not_found", f"カートに商品がありません: {item_key}")
+            self.db.cancel_pending_orders(session_id)
         name = PRODUCTS_BY_ID.get(item_key.partition("|")[0], {}).get("name", item_key)
         self.db.log(channel, "remove_from_cart", f"{name} を削除", session_id)
         return self.get_cart(session_id)
@@ -250,7 +255,9 @@ class ShopService:
     # demo
     # ------------------------------------------------------------------
     def reset_demo(self, session_id: str = DEMO_SESSION_ID, channel: Channel = "WEB") -> dict:
-        removed = self.db.clear_cart(session_id)
+        with self.db._lock:
+            removed = self.db.clear_cart(session_id)
+            self.db.cancel_pending_orders(session_id)
         self.db.log(channel, "reset_demo", f"カート {removed}件をクリア", session_id)
         return {"ok": True, "removed_items": removed, "cart": self.get_cart(session_id)}
 
@@ -259,32 +266,73 @@ class ShopService:
 
     # ------------------------------------------------------------------
     # orders（デモ注文。実際の決済・発送・在庫確定は行われない）
+    #
+    # 2段階フロー: preview_order（内容提示・pending 保存）
+    #            → confirm_order（pending を原子的に確定＋カート空化）
+    # カートを変更すると pending は自動キャンセルされ、
+    # 「提示した内容と違うものが確定される」ことを防ぐ。
     # ------------------------------------------------------------------
-    def confirm_order(self, session_id: str = DEMO_SESSION_ID, channel: Channel = "WEB") -> dict:
-        """カート内容を「デモ注文」として確定する。
+    def preview_order(self, session_id: str = DEMO_SESSION_ID, channel: Channel = "WEB") -> dict:
+        """カート内容を「注文内容の確認」として提示する（pending 注文を保存）。
 
-        - 明細・合計は確定時点の商品マスターから再計算（改ざん防止）
-        - 確定後カートは空になる（通常のECと同じ流れ）
+        - 明細・合計は提示時点の商品マスターからスナップショット（改ざん防止）
+        - この時点では何も確定されない。confirm_order で初めて確定する
         - 実在の注文ではなく記録のみ。決済・発送・在庫引当は一切行わない
         """
-        cart = self.get_cart(session_id)
-        if not cart["items"]:
-            raise ShopError("cart_empty", "カートが空です。商品を追加してから確定してください")
-        order_no = self.db.create_order(
-            session_id, json.dumps(cart["items"], ensure_ascii=False), cart["total"], channel
-        )
-        self.db.clear_cart(session_id)
+        with self.db._lock:
+            cart = self.get_cart(session_id)
+            if not cart["items"]:
+                raise ShopError("cart_empty", "カートが空です。商品を追加してから確認してください")
+            order_no = self.db.create_pending_order(
+                session_id, json.dumps(cart["items"], ensure_ascii=False), cart["total"], channel
+            )
         self.db.log(
             channel,
-            "confirm_order",
-            f"{order_no}: {cart['count']}点 合計¥{cart['total']}（デモ注文）",
+            "preview_order",
+            f"{order_no}: {cart['count']}点 合計¥{cart['total']}（注文内容を提示）",
             session_id,
         )
         return {
             "order_no": order_no,
+            "status": "pending",
             "items": cart["items"],
             "total": cart["total"],
             "count": cart["count"],
+            "demo": True,
+            "message": (
+                "注文内容を確認してください（デモ。実際の決済・発送は行われません）。"
+                "この内容でよければ confirm_order で確定します。"
+            ),
+        }
+
+    def confirm_order(self, session_id: str = DEMO_SESSION_ID, channel: Channel = "WEB") -> dict:
+        """preview_order で提示した内容を「デモ注文」として確定する。
+
+        - preview_order で保存したスナップショットがそのまま確定される
+        - pending 確定とカート空化は1トランザクション（二重確定・明細不一致なし）
+        - 実在の注文ではなく記録のみ。決済・発送・在庫引当は一切行わない
+        """
+        row = self.db.confirm_pending_order(session_id)
+        if row is None:
+            raise ShopError(
+                "no_pending_order",
+                "確定できる注文がありません。先に preview_order で注文内容を提示してください"
+                "（カート変更で提示はキャンセルされます）",
+            )
+        items = json.loads(row["items_json"])
+        count = sum(i["qty"] for i in items)
+        self.db.log(
+            channel,
+            "confirm_order",
+            f"{row['order_no']}: {count}点 合計¥{row['total']}（デモ注文を確定）",
+            session_id,
+        )
+        return {
+            "order_no": row["order_no"],
+            "status": "confirmed",
+            "items": items,
+            "total": row["total"],
+            "count": count,
             "demo": True,
             "message": "デモ注文を確定しました（実際の決済・発送は行われません）",
         }
@@ -293,11 +341,13 @@ class ShopService:
         row = self.db.get_order(order_no)
         if row is None:
             raise ShopError("order_not_found", f"注文が見つかりません: {order_no}")
+        items = json.loads(row["items_json"])
         return {
             "order_no": row["order_no"],
-            "items": json.loads(row["items_json"]),
+            "status": row["status"],
+            "items": items,
             "total": row["total"],
-            "count": sum(i["qty"] for i in json.loads(row["items_json"])),
+            "count": sum(i["qty"] for i in items),
             "channel": row["channel"],
             "created_at": row["created_at"],
             "demo": True,

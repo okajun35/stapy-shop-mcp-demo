@@ -272,15 +272,33 @@ async function init() {
     const d = await call('ui_get_cart');
     if (!d.error) renderCart(d);
   };
+  // 注文確定は2段階: ui_preview_order で内容提示 → モーダル確認 → ui_confirm_order で確定
   $('checkout-btn').onclick = async () => {
     if (!lastCart.items || !lastCart.items.length) { notice('カートが空です'); return; }
-    const d = await call('ui_confirm_order');
-    if (d.error) { notice(d.error); return; }
-    renderCart({items: [], total: 0, count: 0});
-    notice(`デモ注文を確定しました: ${d.order_no}（合計 ${money(d.total)}）※実際の決済・発送は行われません`, true);
-    syncModelContext();
-    app.updateModelContext({content: [{type: 'text',
-      text: `デモ注文確定: ${d.order_no} ${d.count}点 合計¥${d.total}（実際の決済・発送なし）`}]}).catch(() => {});
+    const p = await call('ui_preview_order');
+    if (p.error) { notice(p.error); return; }
+    const card = $('detail-card');
+    card.innerHTML = `
+     <h2>注文内容の確認（デモ）</h2>
+     <p style="font-size:11px;color:#92400e;background:#fffbeb;border:1px dashed #f59e0b;border-radius:8px;padding:6px 10px;font-weight:700">実際の注文・決済・発送は一切行われません</p>
+     ${p.items.map(i => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e2e8f0;font-size:13px"><span>${esc(i.name)} ×${i.qty}</span><strong>${money(i.subtotal)}</strong></div>`).join('')}
+     <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:15px;font-weight:800"><span>合計</span><span>${money(p.total)}</span></div>
+     <div style="display:flex;gap:10px;margin-top:14px">
+      <button class="addbtn" id="order-do-confirm" style="flex:1">この内容で確定する</button>
+      <button id="order-cancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;cursor:pointer">キャンセル</button>
+     </div>`;
+    $('detail-backdrop').classList.add('open');
+    $('order-cancel').onclick = () => $('detail-backdrop').classList.remove('open');
+    $('order-do-confirm').onclick = async () => {
+      $('detail-backdrop').classList.remove('open');
+      const d = await call('ui_confirm_order');
+      if (d.error) { notice(d.error); return; }
+      renderCart({items: [], total: 0, count: 0});
+      notice(`デモ注文を確定しました: ${d.order_no}（合計 ${money(d.total)}）※実際の決済・発送は行われません`, true);
+      syncModelContext();
+      app.updateModelContext({content: [{type: 'text',
+        text: `デモ注文確定: ${d.order_no} ${d.count}点 合計¥${d.total}（実際の決済・発送なし）`}]}).catch(() => {});
+    };
   };
   $('detail-backdrop').addEventListener('click', e => {
     if (e.target === $('detail-backdrop')) $('detail-backdrop').classList.remove('open');
