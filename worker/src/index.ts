@@ -3,7 +3,7 @@
 // REST /api/*・MCP Streamable HTTP /mcp・静的アセットを同一Workerで提供。
 // 実際の販売・決済・発送は行われない（勉強会デモ）。
 
-import { TOOLS_LIST, RESOURCES_LIST } from "./generated/tools";
+import { TOOLS_LIST, RESOURCES_LIST, INSTRUCTIONS } from "./generated/tools";
 import { SHOP_HTML } from "./generated/uiHtml";
 import * as svc from "./service";
 import { ShopError, DEMO_SESSION_ID } from "./service";
@@ -157,10 +157,7 @@ const UI_TOOLS: Record<string, (env: Env, args: any) => Promise<any>> = {
 // MCP Streamable HTTP
 // ---------------------------------------------------------------------------
 
-const INSTRUCTIONS =
-  "stapy商店（Start Python Club の架空グッズEC）デモサーバー。" +
-  "商品検索・商品詳細・カート操作を提供する。実際の販売・決済は行われない。" +
-  "対応ホストでは search_products / browse_shop が対話UIを表示する。";
+// INSTRUCTIONS は build.py が実サーバーから生成（mcp_server.py が正本）
 
 const CAPABILITIES = {
   prompts: { listChanged: false },
@@ -195,6 +192,15 @@ async function handleMcp(req: Request, env: Env, origin: string): Promise<Respon
   try { msg = await req.json(); } catch { return sse(rpcError(null, -32700, "Parse error"), 400); }
   const { id, method, params } = msg ?? {};
   const mcpSid = req.headers.get("Mcp-Session-Id");
+
+  // デバッグ: 公開版でのクライアント挙動把握用（sid有無・Apps対応を記録）
+  try {
+    const uiCheck = method === "initialize"
+      ? `ui-declared=${JSON.stringify(params?.capabilities?.extensions?.[UI_EXT] ?? null)}`
+      : `ui=${mcpSid ? await mcpSupportsUi(env, mcpSid) : "no-sid"}`;
+    await svc.log(env.DB, "MCP_DEBUG", method ?? "unknown",
+      `sid=${mcpSid ? "yes" : "no"} ${uiCheck} tool=${params?.name ?? ""}`.slice(0, 500));
+  } catch { /* ログ失敗は本処理を止めない */ }
 
   // notification（idなし）→ 202
   if (id === undefined && typeof method === "string" && method.startsWith("notifications/"))
@@ -256,7 +262,10 @@ async function handleMcp(req: Request, env: Env, origin: string): Promise<Respon
           });
         }
         if (UI_TOOLS[name]) {
-          const supportsUi = await mcpSupportsUi(env, mcpSid);
+          // _require_apps 相当: sid があればネゴシエーション結果を検証。
+          // sid 無しはステートレスコネクタ（OpenAI系等）とみなし ui_* 呼出し自体を
+          // Apps経路の証左として許可する（検証不可である旨はログに残す）。
+          const supportsUi = mcpSid ? await mcpSupportsUi(env, mcpSid) : true;
           if (!supportsUi) {
             return sse({
               jsonrpc: "2.0", id,

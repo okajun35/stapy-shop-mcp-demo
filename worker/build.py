@@ -75,17 +75,19 @@ def gen_tools() -> None:
             "capabilities": {"extensions": {"io.modelcontextprotocol/ui": {
                 "mimeTypes": ["text/html;profile=mcp-app"]}}},
             "clientInfo": {"name": "build", "version": "0"}}}
-        _stdio_rpc(proc, [init, {"jsonrpc": "2.0", "method": "notifications/initialized"}])
+        init_res = _stdio_rpc(proc, [init, {"jsonrpc": "2.0", "method": "notifications/initialized"}])
         res = _stdio_rpc(proc, [
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             {"jsonrpc": "2.0", "id": 3, "method": "resources/list", "params": {}},
         ])
         tools = res[0]["result"]
         resources = res[1]["result"]
+        instructions = init_res[0]["result"].get("instructions", "")
         (OUT / "tools.ts").write_text(
-            "// 自動生成: MCP tools/list + resources/list の実レスポンス\n"
+            "// 自動生成: MCP initialize + tools/list + resources/list の実レスポンス\n"
             "export const TOOLS_LIST = " + json.dumps(tools, ensure_ascii=False, indent=1) + ";\n"
-            "export const RESOURCES_LIST = " + json.dumps(resources, ensure_ascii=False, indent=1) + ";\n",
+            "export const RESOURCES_LIST = " + json.dumps(resources, ensure_ascii=False, indent=1) + ";\n"
+            "export const INSTRUCTIONS = " + json.dumps(instructions, ensure_ascii=False) + ";\n",
             encoding="utf-8",
         )
         print(f"tools.ts: {len(tools['tools'])} tools / {len(resources['resources'])} resources")

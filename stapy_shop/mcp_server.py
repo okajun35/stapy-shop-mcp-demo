@@ -226,8 +226,18 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
         "stapy-shop",
         instructions=(
             "stapy商店（Start Python Club の架空グッズEC）デモサーバー。"
-            "商品検索・商品詳細・カート操作を提供する。実際の販売・決済は行われない。"
-            "対応ホストでは search_products / browse_shop が対話UIを表示する。"
+            "商品検索・商品詳細・カート操作・デモ注文を提供する。実際の販売・決済・発送は行われない。\n"
+            "使い方ガイド:\n"
+            "- すべての操作はこのサーバーのツールで完結する。"
+            "外部URLへの遷移やブラウザ操作ツールは使わないこと。\n"
+            "- 商品を探す: search_products（キーワード・カテゴリ・価格上限）\n"
+            "- 商品詳細を見る: get_product（価格・在庫・特徴）。"
+            "対話UIが使える環境では browse_shop でショップUIを表示する\n"
+            "- カート: add_to_cart / update_cart / remove_from_cart / get_cart\n"
+            "- 注文（デモ・2段階）: まず preview_order で明細・合計を提示し、"
+            "ユーザー確認後に confirm_order で確定する。"
+            "preview 後にカートを変更すると提示はキャンセルされる。\n"
+            "- ui_* ツールは MCP Apps 対応UIの内部専用。モデルは呼ばないこと。"
         ),
         extensions=[apps],
     )
@@ -269,7 +279,7 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
         return _result("\n".join(lines), result)
 
     @mcp.tool(
-        description="商品IDから商品の詳細情報（価格・在庫・特徴・仕様）を取得する。",
+        description="商品IDから商品の詳細情報（価格・在庫・特徴・仕様）を取得する。詳細ページへのURL遷移ではなくこのツールを使う。",
         annotations=ToolAnnotations(read_only_hint=True),
         meta=_UI_META,
     )
@@ -340,7 +350,7 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
         return _result(f"削除しました。現在 {cart['count']}点・合計 ¥{cart['total']} です。", cart)
 
     @mcp.tool(
-        description="stapy商店の対話ショップUIを開く。商品ブラウズからカート操作までUI上で行える。",
+        description="stapy商店の対話ショップUIを開く。商品ブラウズ・カート操作・注文確定までUI上で行える。",
         annotations=ToolAnnotations(read_only_hint=True),
         meta=_UI_META,
     )
