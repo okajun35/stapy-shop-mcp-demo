@@ -2,6 +2,12 @@ name = "stapy-shop-mcp-demo"
 main = "src/index.ts"
 compatibility_date = "2026-11-01"
 
+# カスタムドメイン（studiooverdrive.com ゾーンは同一アカウントで active 管理済み。
+# DNSレコード・証明書は Worker Custom Domain として自動発行される）
+routes = [
+  { pattern = "stapy.studiooverdrive.com", custom_domain = true },
+]
+
 # 静的アセット（Web UI 4ページ + images/ + shop.js + webmcp.js + styles.css）
 [assets]
 directory = "../stapy_shop/static"

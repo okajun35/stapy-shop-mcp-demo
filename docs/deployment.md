@@ -5,8 +5,15 @@ FastAPI + SQLite のローカル版を、**Cloudflare Workers + D1 + Workers Sta
 
 ## 公開 URL
 
-- Web UI: `https://stapy-shop-mcp-demo.okazakijun54392.workers.dev/`
-- MCP（Streamable HTTP）: `https://stapy-shop-mcp-demo.okazakijun54392.workers.dev/mcp`
+- Web UI: `https://stapy.studiooverdrive.com/`
+- MCP（Streamable HTTP）: `https://stapy.studiooverdrive.com/mcp`
+
+購入済みドメイン `studiooverdrive.com`（同一アカウントで DNS 管理済みゾーン）の
+サブドメインを **Worker Custom Domain** として紐付け
+（`wrangler.toml` の `routes`）。DNS レコード・TLS 証明書は自動発行される。
+`workers.dev` のデフォルトルートは無効化済み（アカウント名を含むサブドメインを
+公開しないため）。workers.dev で再公開したい場合は `workers_dev = true` を
+wrangler.toml に追記してデプロイする。
 
 ## アーキテクチャの対応
 
