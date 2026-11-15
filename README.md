@@ -204,7 +204,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 | MCP Inspector | 2.15.0 | ✅ **MCP Apps 実描画・実操作を確認** |
 | Chromium（snap） | 156.0.8078.47 | ✅ **WebMCP 登録・executeTool 実呼出を確認** |
 | Google Chrome | 144.0.7559.59 | ✅ 通常Web + WebMCP非対応フォールバック確認 |
-| Playwright | 1.60.0 | ✅ E2E 40項目 PASS |
+| Playwright | 1.60.0 | ✅ E2E 43項目 PASS |
 
 ### MCP Apps 対応ホスト
 
@@ -221,6 +221,9 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 - **検証済**: Chromium 156.0.8078.47（snap）+ フラグ
   `--enable-experimental-web-platform-features`（`WebMCPTesting,WebMCP` のみでも可）。
   `document.modelContext.getTools()` で8ツール、`executeTool()` で実呼出・画面反映を確認。
+  カート系ツール（`add_to_cart` / `update_cart` / `remove_from_cart` / `get_cart`）は
+  実行時に画面上のカートパネルを開き、AIの操作がそのまま見えます
+  （`get_cart` は `show_in_browser:false` でパネルを開かない呼び出しも可）。
 - **非対応**: Google Chrome 144（上記フラグでも `document.modelContext` は未定義）。
   非対応でも通常のEC機能はそのまま動きます（プログレッシブエンハンスメント、E2E確認済）。
 - WebMCP は **ドラフト仕様（W3C Community Group Report）** であり、API・対応ブラウザは
@@ -248,7 +251,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 # バックエンド（72件: カタログ/検索/カート/注文2段階/バリデーション/同時実行/ログ/REST/ページ）
 .venv/bin/python -m pytest tests/ -q
 
-# ブラウザE2E（40件: WEB / WEBMCP実呼出 / 注文2段階フロー / 非対応フォールバック）
+# ブラウザE2E（43件: WEB / WEBMCP実呼出 / 注文2段階フロー / 非対応フォールバック）
 .venv/bin/python tests/e2e.py        # サーバー起動中に実行
 
 # 4方式統合（同一シナリオが全経路で同一カート＋同一注文確定になること）
@@ -258,7 +261,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 最新の実行結果（この環境での実測）：
 
 - `pytest`: **72 passed**
-- `tests/e2e.py`: **40/40 PASS**
+- `tests/e2e.py`: **43/43 PASS**
 - `tests/four_way.py`: **4方式とも ¥2,700 で一致 + 注文確定（STAPY-DEMO-xxxxx）も4経路で記録 + 4チャネルのログ記録を確認**
 - MCP Inspector 2.15.0 での MCP Apps 実描画・UI操作を確認
 - 詳細は `docs/test_results.md`
@@ -310,7 +313,7 @@ mcp-for-stapy/
 ├── tests/
 │   ├── test_service.py       # サービス層テスト
 │   ├── test_api.py           # REST APIテスト
-│   ├── e2e.py                # Playwright E2E（36項目）
+│   ├── e2e.py                # Playwright E2E（43項目）
 │   └── four_way.py           # 4方式統合テスト
 └── stapy_shop_*.html         # 元の単体HTML（参照用に残置）
 ```

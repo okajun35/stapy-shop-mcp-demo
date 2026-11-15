@@ -77,20 +77,26 @@ const tools = [
   },
   {
     name: 'get_cart',
-    title: 'カート内容を確認',
-    description: '共有デモカートの内容（明細・数量・合計金額）を取得します。',
-    inputSchema: {type: 'object', properties: {}},
+    title: 'カート内容を確認・表示',
+    description: '共有デモカートの内容（明細・数量・合計金額）を取得し、画面上のカートパネルも開いて内容を表示します。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        show_in_browser: {type: 'boolean', description: 'true で画面上のカートパネルを開く（既定: true）', default: true},
+      },
+    },
     annotations: {readOnlyHint: true},
-    execute: async () => {
+    execute: async ({show_in_browser = true} = {}) => {
       const cart = await agentApi('/api/cart');
       await window.__stapy.refreshCart();  // 画面上のバッジも最新に
+      if (show_in_browser) window.__stapy.openCart();
       return cart;
     },
   },
   {
     name: 'add_to_cart',
     title: 'カートに追加',
-    description: '商品を共有デモカートに追加します。画面右上のカート件数にも反映されます。',
+    description: '商品を共有デモカートに追加します。画面上のカートパネルが開き、追加された商品が見えます。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -107,6 +113,7 @@ const tools = [
         body: {product_id, qty, variant},
       });
       await window.__stapy.refreshCart();
+      window.__stapy.openCart();  // 追加結果が見えるようカートパネルを開く
       const p = window.__stapy.byId[product_id];
       window.__stapy.toast(`AIが「${p ? p.name : product_id}」をカートに追加しました`);
       return cart;
@@ -115,7 +122,7 @@ const tools = [
   {
     name: 'update_cart',
     title: 'カート数量を変更',
-    description: 'カート内商品の数量を変更します。qty=0 で削除と同等です。',
+    description: 'カート内商品の数量を変更します。qty=0 で削除と同等です。画面上のカートパネルが開きます。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -131,13 +138,14 @@ const tools = [
         body: {qty},
       });
       await window.__stapy.refreshCart();
+      window.__stapy.openCart();
       return cart;
     },
   },
   {
     name: 'remove_from_cart',
     title: 'カートから削除',
-    description: 'カートから商品を削除します。',
+    description: 'カートから商品を削除します。画面上のカートパネルが開きます。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -151,6 +159,7 @@ const tools = [
         method: 'DELETE',
       });
       await window.__stapy.refreshCart();
+      window.__stapy.openCart();
       return cart;
     },
   },

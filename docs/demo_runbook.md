@@ -117,10 +117,10 @@ JSON.parse(await document.modelContext.executeTool(s, {query:'LT', max_price:300
 const a = tools.find(t => t.name === 'add_to_cart');
 await document.modelContext.executeTool(a, {product_id:'lt-timer', qty:1});
 await document.modelContext.executeTool(a, {product_id:'sticker-set', qty:1});
-// → 右上のカートバッジが 1 → 2 に増える、トースト表示
+// → カートパネルが開き、追加された商品がその場で見える（バッジ 1→2、トースト表示）
 const c = tools.find(t => t.name === 'get_cart');
 await document.modelContext.executeTool(c, {});
-// → total: 2700
+// → total: 2700。パネルが閉じていても開いて内容を表示（show_in_browser 既定 true）
 const pv = tools.find(t => t.name === 'preview_order');
 await document.modelContext.executeTool(pv, {});
 // → 画面に注文確認モーダルが開く（AIの提示が人間の画面にも出る）

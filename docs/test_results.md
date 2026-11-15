@@ -25,7 +25,7 @@ $ .venv/bin/python -m pytest tests/ -q
 | TestDemoApi | リセット・WEBログ・WEBMCPチャネルヘッダ |
 | TestPages | `/` `/index.html` `/detail.html` `/logs.html` `/order_complete.html` 旧ファイル名・静的JS・画像 |
 
-## 2. Playwright E2E — 40/40 PASS
+## 2. Playwright E2E — 43/43 PASS
 
 ```
 $ .venv/bin/python tests/e2e.py
@@ -59,8 +59,11 @@ $ .venv/bin/python tests/e2e.py
 [PASS] AI検索→画面も3件に絞込（画面への反映）
 [PASS] AIカート追加（lt-timer）
 [PASS] 画面バッジ更新
+[PASS] AI追加→カートパネル開く（body.cart-open）
+[PASS] パネル内に追加商品表示
 [PASS] サーバーカート一致（共有状態）
 [PASS] AIカート確認
+[PASS] get_cart→カートパネル再表示（閉じた状態から再び開く）
 [PASS] AI注文提示（preview_order → pending）
 [PASS] AI提示→画面に確認モーダル表示
 [PASS] AI注文確定（confirm_order → STAPY-DEMO-xxxxx・demo=True）
@@ -75,7 +78,7 @@ $ .venv/bin/python tests/e2e.py
 [PASS] 通常カート操作可能（非対応でも動く）
 [PASS] JSエラーなし
 
-=== E2E結果: 40/40 PASS ===
+=== E2E結果: 43/43 PASS ===
 ```
 
 ## 3. 4方式統合テスト — PASS
@@ -151,6 +154,9 @@ stdio（`.venv/bin/python -m stapy_shop --stdio`）:
 
 - Chromium 156 + フラグで `document.modelContext` が公開され、
   `getTools()` → 8ツール、`executeTool()` → 実実行・画面反映・WEBMCPログを確認
+- カート系ツール実行で画面のカートパネル（ドロワー）が開くことを確認
+  （`add_to_cart`/`update_cart`/`remove_from_cart` 実行後、`get_cart` は
+  閉じた状態からも再表示。`show_in_browser:false` で抑止可）
 - `preview_order` 実行 → 画面に確認モーダル表示、`confirm_order` → 画面は `order_complete.html` へ遷移
 - Google Chrome 144 では `document.modelContext` 未定義 → 通常UIは動作（プログレッシブ）
 - 証跡: `docs/screenshots/webmcp.png`

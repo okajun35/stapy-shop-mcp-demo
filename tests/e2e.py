@@ -186,14 +186,20 @@ def test_webmcp(p):
     report("AIカート追加", any(i["product_id"] == "lt-timer" for i in cart["items"]))
     page.wait_for_timeout(1200)
     report("画面バッジ更新", page.locator(".cart-count").first.inner_text() == "1")
+    report("AI追加→カートパネル開く", page.locator("body.cart-open").count() == 1)
+    report("パネル内に追加商品", "LT専用5分タイマー" in page.locator("#cart-items").inner_text())
     report("サーバーカート一致", api("/api/cart")["total"] == 2300)
 
+    # ドロワーを閉じてから get_cart → 再び開いて内容を見せる
+    page.evaluate("document.body.classList.remove('cart-open')")
     out = page.evaluate("""async () => {
         const ts = await document.modelContext.getTools();
         const t = ts.find(t => t.name === 'get_cart');
         return await document.modelContext.executeTool(t, {});
     }""")
     report("AIカート確認", json.loads(out)["total"] == 2300)
+    page.wait_for_timeout(600)
+    report("get_cart→カートパネル再表示", page.locator("body.cart-open").count() == 1)
 
     # AIが注文提示 → 画面に確認モーダル → AIが確定 → 確定ページへ遷移
     out = page.evaluate("""async () => {
