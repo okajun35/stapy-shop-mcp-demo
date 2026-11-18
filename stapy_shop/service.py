@@ -85,6 +85,7 @@ class ShopService:
         sort: Literal["recommended", "price-asc", "price-desc", "name"] = "recommended",
         channel: Channel | None = None,
         session_id: str = DEMO_SESSION_ID,
+        action: str = "search_products",
     ) -> dict:
         if max_price is not None and max_price < 0:
             raise ShopError("invalid_input", "max_price は 0 以上を指定してください")
@@ -115,7 +116,7 @@ class ShopService:
         if channel:
             self.db.log(
                 channel,
-                "search_products",
+                action,
                 f"q={q!r} categories={categories} max_price={max_price} → {len(rows)}件",
                 session_id,
             )
@@ -128,7 +129,12 @@ class ShopService:
     def item_key(product_id: str, variant: str = "") -> str:
         return f"{product_id}|{variant}"
 
-    def get_cart(self, session_id: str = DEMO_SESSION_ID, channel: Channel | None = None) -> dict:
+    def get_cart(
+        self,
+        session_id: str = DEMO_SESSION_ID,
+        channel: Channel | None = None,
+        action: str = "get_cart",
+    ) -> dict:
         items = []
         total = 0
         for row in self.db.get_cart_items(session_id):
@@ -151,7 +157,7 @@ class ShopService:
             )
         cart = {"session_id": session_id, "items": items, "total": total, "count": sum(i["qty"] for i in items)}
         if channel:
-            self.db.log(channel, "get_cart", f"{len(items)}種 {cart['count']}点 合計¥{total}", session_id)
+            self.db.log(channel, action, f"{len(items)}種 {cart['count']}点 合計¥{total}", session_id)
         return cart
 
     def _validate_qty(self, qty: Any) -> int:
@@ -182,6 +188,7 @@ class ShopService:
         variant: str = "",
         session_id: str = DEMO_SESSION_ID,
         channel: Channel = "WEB",
+        action: str = "add_to_cart",
     ) -> dict:
         product = self.get_product(product_id)  # raises product_not_found
         qty = self._validate_qty(qty)
@@ -200,7 +207,7 @@ class ShopService:
             self.db.cancel_pending_orders(session_id)  # 提示済み内容とカートが乖離しないよう pending を無効化
         self.db.log(
             channel,
-            "add_to_cart",
+            action,
             f"{product['name']} ×{qty}" + (f"（{variant}）" if variant else ""),
             session_id,
         )
@@ -212,6 +219,7 @@ class ShopService:
         qty: int,
         session_id: str = DEMO_SESSION_ID,
         channel: Channel = "WEB",
+        action: str = "update_cart",
     ) -> dict:
         """item_key（"product_id|variant"）の数量を絶対値で変更。0 なら削除。"""
         product_id, _, variant = item_key.partition("|")
@@ -234,7 +242,7 @@ class ShopService:
                 raise ShopError("item_not_found", f"カートに商品がありません: {item_key}")
             self.db.upsert_item(session_id, item_key, product_id, variant, qty)
             self.db.cancel_pending_orders(session_id)
-        self.db.log(channel, "update_cart", f"{product['name']} → ×{qty}", session_id)
+        self.db.log(channel, action, f"{product['name']} → ×{qty}", session_id)
         return self.get_cart(session_id)
 
     def remove_from_cart(
@@ -242,23 +250,29 @@ class ShopService:
         item_key: str,
         session_id: str = DEMO_SESSION_ID,
         channel: Channel = "WEB",
+        action: str = "remove_from_cart",
     ) -> dict:
         with self.db._lock:
             if not self.db.delete_item(session_id, item_key):
                 raise ShopError("item_not_found", f"カートに商品がありません: {item_key}")
             self.db.cancel_pending_orders(session_id)
         name = PRODUCTS_BY_ID.get(item_key.partition("|")[0], {}).get("name", item_key)
-        self.db.log(channel, "remove_from_cart", f"{name} を削除", session_id)
+        self.db.log(channel, action, f"{name} を削除", session_id)
         return self.get_cart(session_id)
 
     # ------------------------------------------------------------------
     # demo
     # ------------------------------------------------------------------
-    def reset_demo(self, session_id: str = DEMO_SESSION_ID, channel: Channel = "WEB") -> dict:
+    def reset_demo(
+        self,
+        session_id: str = DEMO_SESSION_ID,
+        channel: Channel = "WEB",
+        action: str = "reset_demo",
+    ) -> dict:
         with self.db._lock:
             removed = self.db.clear_cart(session_id)
             self.db.cancel_pending_orders(session_id)
-        self.db.log(channel, "reset_demo", f"カート {removed}件をクリア", session_id)
+        self.db.log(channel, action, f"カート {removed}件をクリア", session_id)
         return {"ok": True, "removed_items": removed, "cart": self.get_cart(session_id)}
 
     def operation_logs(self, limit: int = 100) -> list[dict]:
@@ -272,7 +286,12 @@ class ShopService:
     # カートを変更すると pending は自動キャンセルされ、
     # 「提示した内容と違うものが確定される」ことを防ぐ。
     # ------------------------------------------------------------------
-    def preview_order(self, session_id: str = DEMO_SESSION_ID, channel: Channel = "WEB") -> dict:
+    def preview_order(
+        self,
+        session_id: str = DEMO_SESSION_ID,
+        channel: Channel = "WEB",
+        action: str = "preview_order",
+    ) -> dict:
         """カート内容を「注文内容の確認」として提示する（pending 注文を保存）。
 
         - 明細・合計は提示時点の商品マスターからスナップショット（改ざん防止）
@@ -288,7 +307,7 @@ class ShopService:
             )
         self.db.log(
             channel,
-            "preview_order",
+            action,
             f"{order_no}: {cart['count']}点 合計¥{cart['total']}（注文内容を提示）",
             session_id,
         )
@@ -305,7 +324,12 @@ class ShopService:
             ),
         }
 
-    def confirm_order(self, session_id: str = DEMO_SESSION_ID, channel: Channel = "WEB") -> dict:
+    def confirm_order(
+        self,
+        session_id: str = DEMO_SESSION_ID,
+        channel: Channel = "WEB",
+        action: str = "confirm_order",
+    ) -> dict:
         """preview_order で提示した内容を「デモ注文」として確定する。
 
         - preview_order で保存したスナップショットがそのまま確定される
@@ -323,7 +347,7 @@ class ShopService:
         count = sum(i["qty"] for i in items)
         self.db.log(
             channel,
-            "confirm_order",
+            action,
             f"{row['order_no']}: {count}点 合計¥{row['total']}（デモ注文を確定）",
             session_id,
         )

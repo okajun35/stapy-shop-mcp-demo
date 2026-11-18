@@ -3,13 +3,17 @@
 ツール構成:
   モデル向けツール   search_products / get_product / get_cart /
                     add_to_cart / update_cart / remove_from_cart /
-                    browse_shop / reset_demo
-                    @mcp.tool で登録し _meta.ui.resourceUri を meta= で付与。
+                    preview_order / confirm_order / reset_demo
+                    （UI連携メタなし → 対応ホストでもUIは表示されない）
+                    と apps_* 系全操作分（_meta.ui.resourceUri 付き →
+                    MCP Apps 対応ホストで結果が対話UIに自動表示される。
+                    apps_browse_shop はUIを開く入口）
+                    @mcp.tool で登録し apps_* だけ meta= で _meta.ui を付与。
                     （Apps 拡張の tools() 経由だと拡張未ネゴシエーションの
                       クライアントにツール自体が見えなくなるため）
                     戻り値は CallToolResult で、content に日本語テキスト、
                     structuredContent に構造化データを両方載せる。
-                    → 操作ログは "MCP"
+                    → 操作ログは "MCP"（action 名は実際に呼ばれたツール名）
   アプリ専用ツール   ui_search_products / ui_get_product / ui_get_cart /
                     ui_add_to_cart / ui_update_cart / ui_remove_from_cart
                     @apps.tool(visibility=["app"]) で登録。
@@ -231,12 +235,14 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
             "- すべての操作はこのサーバーのツールで完結する。"
             "外部URLへの遷移やブラウザ操作ツールは使わないこと。\n"
             "- 商品を探す: search_products（キーワード・カテゴリ・価格上限）\n"
-            "- 商品詳細を見る: get_product（価格・在庫・特徴）。"
-            "対話UIが使える環境では browse_shop でショップUIを表示する\n"
+            "- 商品詳細を見る: get_product（価格・在庫・特徴）。詳細ページへのURL遷移ではなくこのツールを使う\n"
             "- カート: add_to_cart / update_cart / remove_from_cart / get_cart\n"
             "- 注文（デモ・2段階）: まず preview_order で明細・合計を提示し、"
             "ユーザー確認後に confirm_order で確定する。"
             "preview 後にカートを変更すると提示はキャンセルされる。\n"
+            "- apps_* ツールは _meta.ui 付きで、MCP Apps 対応ホストでは結果が対話UIに表示される"
+            "（apps_browse_shop でショップUIを開く）。UIを使わずテキストだけ欲しい場合は"
+            "同名の通常ツールを使うこと。\n"
             "- ui_* ツールは MCP Apps 対応UIの内部専用。モデルは呼ばないこと。"
         ),
         extensions=[apps],
@@ -244,25 +250,14 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
 
     # ------------------------------------------------------------------
     # モデル向けツール（channel=MCP）
-    # content に日本語テキスト、structuredContent に同じデータを載せるため、
-    # Apps 非対応クライアントにも対応ホストにも意味のある応答になる。
+    # 本体は _<name>_impl に集約し、通常版（UIメタなし）と apps_* 版
+    # （_meta.ui.resourceUri 付き＝対応ホストで結果が対話UIに自動表示）の
+    # 2系統を同じ操作で用意する。操作ログの action 名は実際に呼ばれたツール名。
+    # content に日本語テキスト、structuredContent に構造化データを両方載せる。
     # ------------------------------------------------------------------
     _UI_META = {"ui": {"resourceUri": SHOP_UI_URI, "visibility": ["model", "app"]}}
 
-    @mcp.tool(
-        description=(
-            "stapy商店の商品を検索する。キーワード・カテゴリ・価格上限で絞り込める。"
-            "対応ホストでは検索結果が対話UIで表示される。"
-        ),
-        annotations=ToolAnnotations(read_only_hint=True),
-        meta=_UI_META,
-    )
-    def search_products(
-        q: Annotated[str, Field(description="検索キーワード（商品名・説明・キーワードを対象）")] = "",
-        category: Annotated[str | None, Field(description="カテゴリ名で絞り込み（例: 'デスク周り'）")] = None,
-        max_price: Annotated[int | None, Field(ge=0, description="価格上限（円）")] = None,
-        sort: SortKey = "recommended",
-    ) -> CallToolResult:
+    def _search_products_impl(q, category, max_price, sort, action):
         try:
             result = service.search_products(
                 q=q,
@@ -271,6 +266,7 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
                 sort=sort,
                 channel="MCP",
                 session_id=DEMO_SESSION_ID,
+                action=action,
             )
         except ShopError as e:
             _raise(e)
@@ -278,28 +274,19 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
         lines += [f"- {p['name']}（{p['id']}）¥{p['price']} 在庫{p['stock']}" for p in result["products"]]
         return _result("\n".join(lines), result)
 
-    @mcp.tool(
-        description="商品IDから商品の詳細情報（価格・在庫・特徴・仕様）を取得する。詳細ページへのURL遷移ではなくこのツールを使う。",
-        annotations=ToolAnnotations(read_only_hint=True),
-        meta=_UI_META,
-    )
-    def get_product(product_id: ProductId) -> CallToolResult:
+    def _get_product_impl(product_id, action):
         try:
             product = service.get_product(product_id)
         except ShopError as e:
             _raise(e)
-        service.db.log("MCP", "get_product", product["name"], DEMO_SESSION_ID)
+        service.db.log("MCP", action, product["name"], DEMO_SESSION_ID)
         return _result(
             f"{product['name']} ¥{product['price']} 在庫{product['stock']}\n{json.dumps(product, ensure_ascii=False)}",
             {"product": product},
         )
 
-    @mcp.tool(
-        description="共有デモカートの内容（明細・数量・合計金額）を取得する。",
-        annotations=ToolAnnotations(read_only_hint=True),
-    )
-    def get_cart() -> CallToolResult:
-        cart = service.get_cart(DEMO_SESSION_ID, channel="MCP")
+    def _get_cart_impl(action):
+        cart = service.get_cart(DEMO_SESSION_ID, channel="MCP", action=action)
         if not cart["items"]:
             text = "カートは空です。"
         else:
@@ -308,18 +295,9 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
             text = "\n".join(lines)
         return _result(text, cart)
 
-    @mcp.tool(
-        description="商品を共有デモカートに追加する。価格はサーバー側の商品マスターで計算される。",
-        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
-        meta=_UI_META,
-    )
-    def add_to_cart(
-        product_id: ProductId,
-        qty: Qty = 1,
-        variant: Annotated[str, Field(description="サイズ等のバリアント（該当商品のみ。例: 'M'）")] = "",
-    ) -> CallToolResult:
+    def _add_to_cart_impl(product_id, qty, variant, action):
         try:
-            cart = service.add_to_cart(product_id, qty, variant, DEMO_SESSION_ID, channel="MCP")
+            cart = service.add_to_cart(product_id, qty, variant, DEMO_SESSION_ID, channel="MCP", action=action)
         except ShopError as e:
             _raise(e)
         return _result(
@@ -327,54 +305,31 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
             {"added": {"product_id": product_id, "qty": qty, "variant": variant}, "cart": cart},
         )
 
-    @mcp.tool(
-        description="カート内商品の数量を変更する。qty=0 で削除と同等。",
-        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True),
-    )
-    def update_cart(item_key: ItemKey, qty: QtyOrZero) -> CallToolResult:
+    def _update_cart_impl(item_key, qty, action):
         try:
-            cart = service.update_cart(item_key, qty, DEMO_SESSION_ID, channel="MCP")
+            cart = service.update_cart(item_key, qty, DEMO_SESSION_ID, channel="MCP", action=action)
         except ShopError as e:
             _raise(e)
         return _result(f"数量を更新しました。現在 {cart['count']}点・合計 ¥{cart['total']} です。", cart)
 
-    @mcp.tool(
-        description="カートから商品を削除する。",
-        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True),
-    )
-    def remove_from_cart(item_key: ItemKey) -> CallToolResult:
+    def _remove_from_cart_impl(item_key, action):
         try:
-            cart = service.remove_from_cart(item_key, DEMO_SESSION_ID, channel="MCP")
+            cart = service.remove_from_cart(item_key, DEMO_SESSION_ID, channel="MCP", action=action)
         except ShopError as e:
             _raise(e)
         return _result(f"削除しました。現在 {cart['count']}点・合計 ¥{cart['total']} です。", cart)
 
-    @mcp.tool(
-        description="stapy商店の対話ショップUIを開く。商品ブラウズ・カート操作・注文確定までUI上で行える。",
-        annotations=ToolAnnotations(read_only_hint=True),
-        meta=_UI_META,
-    )
-    def browse_shop() -> CallToolResult:
-        catalog = service.search_products(channel="MCP", session_id=DEMO_SESSION_ID)
+    def _browse_shop_impl(action):
+        catalog = service.search_products(channel="MCP", session_id=DEMO_SESSION_ID, action=action)
         cart = service.get_cart(DEMO_SESSION_ID)
         return _result(
             f"stapy商店: {catalog['count']}件の商品があります。対話UIを表示するか search_products で検索してください。",
             {"products": catalog["products"], "cart": cart},
         )
 
-    @mcp.tool(
-        description=(
-            "共有デモカートの内容を「注文内容の確認」として提示する（第1段階）。"
-            "明細・合計をスナップショットした未確定注文（pending）を作り、内容を返す。"
-            "ユーザーが内容を確認したら confirm_order で確定する。"
-            "実際の決済・発送は行われない（勉強会デモ用）。"
-        ),
-        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
-        meta=_UI_META,
-    )
-    def preview_order() -> CallToolResult:
+    def _preview_order_impl(action):
         try:
-            order = service.preview_order(DEMO_SESSION_ID, channel="MCP")
+            order = service.preview_order(DEMO_SESSION_ID, channel="MCP", action=action)
         except ShopError as e:
             _raise(e)
         lines = [f"注文内容の確認（未確定）: {order['order_no']}（{order['count']}点 合計 ¥{order['total']}）"]
@@ -382,19 +337,9 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
         lines.append("この内容でよければ confirm_order を実行してください（デモ。実際の決済・発送は行われません）")
         return _result("\n".join(lines), order)
 
-    @mcp.tool(
-        description=(
-            "preview_order で提示した内容を「デモ注文」として確定する（第2段階）。"
-            "提示と同じスナップショットが確定され、確定後カートは空になる。"
-            "preview_order を先に実行すること。カートを変更すると提示はキャンセルされる。"
-            "実際の決済・発送・在庫確定は一切行われない（勉強会デモ用の記録のみ）。"
-        ),
-        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False),
-        meta=_UI_META,
-    )
-    def confirm_order() -> CallToolResult:
+    def _confirm_order_impl(action):
         try:
-            order = service.confirm_order(DEMO_SESSION_ID, channel="MCP")
+            order = service.confirm_order(DEMO_SESSION_ID, channel="MCP", action=action)
         except ShopError as e:
             _raise(e)
         lines = [f"デモ注文を確定しました: {order['order_no']}（{order['count']}点 合計 ¥{order['total']}）"]
@@ -402,12 +347,200 @@ def build_mcp_server(service: ShopService, base_url: str = "http://127.0.0.1:800
         lines.append("※ 実際の決済・発送は行われません（デモ）")
         return _result("\n".join(lines), order)
 
+    def _reset_demo_impl(action):
+        result = service.reset_demo(DEMO_SESSION_ID, channel="MCP", action=action)
+        return _result("デモをリセットしました。カートは空です。", result)
+
+    # --- 通常ツール（UI連携メタなし。Apps対応ホストでもUIは表示されない） -----
+
     @mcp.tool(
-        description="デモ用に共有カートを空にして初期状態へ戻す。",
+        description=(
+            "stapy商店の商品を検索する。キーワード・カテゴリ・価格上限で絞り込める。"
+            "対話UI表示が必要なら apps_search_products を使う。"
+        ),
+        annotations=ToolAnnotations(read_only_hint=True),
+    )
+    def search_products(
+        q: Annotated[str, Field(description="検索キーワード（商品名・説明・キーワードを対象）")] = "",
+        category: Annotated[str | None, Field(description="カテゴリ名で絞り込み（例: 'デスク周り'）")] = None,
+        max_price: Annotated[int | None, Field(ge=0, description="価格上限（円）")] = None,
+        sort: SortKey = "recommended",
+    ) -> CallToolResult:
+        return _search_products_impl(q, category, max_price, sort, "search_products")
+
+    @mcp.tool(
+        description="商品IDから商品の詳細情報（価格・在庫・特徴・仕様）を取得する。詳細ページへのURL遷移ではなくこのツールを使う。対話UI表示が必要なら apps_get_product。",
+        annotations=ToolAnnotations(read_only_hint=True),
+    )
+    def get_product(product_id: ProductId) -> CallToolResult:
+        return _get_product_impl(product_id, "get_product")
+
+    @mcp.tool(
+        description="共有デモカートの内容（明細・数量・合計金額）を取得する。対話UI表示が必要なら apps_get_cart。",
+        annotations=ToolAnnotations(read_only_hint=True),
+    )
+    def get_cart() -> CallToolResult:
+        return _get_cart_impl("get_cart")
+
+    @mcp.tool(
+        description="商品を共有デモカートに追加する。価格はサーバー側の商品マスターで計算される。対話UI表示が必要なら apps_add_to_cart。",
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
+    )
+    def add_to_cart(
+        product_id: ProductId,
+        qty: Qty = 1,
+        variant: Annotated[str, Field(description="サイズ等のバリアント（該当商品のみ。例: 'M'）")] = "",
+    ) -> CallToolResult:
+        return _add_to_cart_impl(product_id, qty, variant, "add_to_cart")
+
+    @mcp.tool(
+        description="カート内商品の数量を変更する。qty=0 で削除と同等。対話UI表示が必要なら apps_update_cart。",
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True),
+    )
+    def update_cart(item_key: ItemKey, qty: QtyOrZero) -> CallToolResult:
+        return _update_cart_impl(item_key, qty, "update_cart")
+
+    @mcp.tool(
+        description="カートから商品を削除する。対話UI表示が必要なら apps_remove_from_cart。",
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True),
+    )
+    def remove_from_cart(item_key: ItemKey) -> CallToolResult:
+        return _remove_from_cart_impl(item_key, "remove_from_cart")
+
+    @mcp.tool(
+        description=(
+            "共有デモカートの内容を「注文内容の確認」として提示する（第1段階）。"
+            "明細・合計をスナップショットした未確定注文（pending）を作り、内容を返す。"
+            "ユーザーが内容を確認したら confirm_order で確定する。"
+            "実際の決済・発送は行われない（勉強会デモ用）。対話UI表示が必要なら apps_preview_order。"
+        ),
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
+    )
+    def preview_order() -> CallToolResult:
+        return _preview_order_impl("preview_order")
+
+    @mcp.tool(
+        description=(
+            "preview_order で提示した内容を「デモ注文」として確定する（第2段階）。"
+            "提示と同じスナップショットが確定され、確定後カートは空になる。"
+            "preview_order を先に実行すること。カートを変更すると提示はキャンセルされる。"
+            "実際の決済・発送・在庫確定は一切行われない（勉強会デモ用の記録のみ）。対話UI表示が必要なら apps_confirm_order。"
+        ),
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False),
+    )
+    def confirm_order() -> CallToolResult:
+        return _confirm_order_impl("confirm_order")
+
+    @mcp.tool(
+        description="デモ用に共有カートを空にして初期状態へ戻す。対話UI表示が必要なら apps_reset_demo。",
         annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True),
     )
     def reset_demo() -> CallToolResult:
-        result = service.reset_demo(DEMO_SESSION_ID, channel="MCP")
-        return _result("デモをリセットしました。カートは空です。", result)
+        return _reset_demo_impl("reset_demo")
+
+    # --- apps_* ツール（_meta.ui 付き。対応ホストでは結果が対話UIに表示される） ---
+
+    @mcp.tool(
+        description="stapy商店の対話ショップUIを開く（MCP Apps）。商品ブラウズ・カート操作・注文確定までUI上で行える。",
+        annotations=ToolAnnotations(read_only_hint=True),
+        meta=_UI_META,
+    )
+    def apps_browse_shop() -> CallToolResult:
+        return _browse_shop_impl("apps_browse_shop")
+
+    @mcp.tool(
+        description=(
+            "stapy商店の商品を検索する。キーワード・カテゴリ・価格上限で絞り込める。"
+            "対応ホストでは検索結果が対話UIで表示される。UI不要なら search_products。"
+        ),
+        annotations=ToolAnnotations(read_only_hint=True),
+        meta=_UI_META,
+    )
+    def apps_search_products(
+        q: Annotated[str, Field(description="検索キーワード（商品名・説明・キーワードを対象）")] = "",
+        category: Annotated[str | None, Field(description="カテゴリ名で絞り込み（例: 'デスク周り'）")] = None,
+        max_price: Annotated[int | None, Field(ge=0, description="価格上限（円）")] = None,
+        sort: SortKey = "recommended",
+    ) -> CallToolResult:
+        return _search_products_impl(q, category, max_price, sort, "apps_search_products")
+
+    @mcp.tool(
+        description="商品IDから商品の詳細情報（価格・在庫・特徴・仕様）を取得する。対応ホストでは詳細が対話UIで表示される。UI不要なら get_product。",
+        annotations=ToolAnnotations(read_only_hint=True),
+        meta=_UI_META,
+    )
+    def apps_get_product(product_id: ProductId) -> CallToolResult:
+        return _get_product_impl(product_id, "apps_get_product")
+
+    @mcp.tool(
+        description="共有デモカートの内容（明細・数量・合計金額）を取得する。対応ホストでは対話UIで表示される。UI不要なら get_cart。",
+        annotations=ToolAnnotations(read_only_hint=True),
+        meta=_UI_META,
+    )
+    def apps_get_cart() -> CallToolResult:
+        return _get_cart_impl("apps_get_cart")
+
+    @mcp.tool(
+        description="商品を共有デモカートに追加する。価格はサーバー側の商品マスターで計算される。対応ホストでは対話UIで表示される。UI不要なら add_to_cart。",
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
+        meta=_UI_META,
+    )
+    def apps_add_to_cart(
+        product_id: ProductId,
+        qty: Qty = 1,
+        variant: Annotated[str, Field(description="サイズ等のバリアント（該当商品のみ。例: 'M'）")] = "",
+    ) -> CallToolResult:
+        return _add_to_cart_impl(product_id, qty, variant, "apps_add_to_cart")
+
+    @mcp.tool(
+        description="カート内商品の数量を変更する。qty=0 で削除と同等。対応ホストでは対話UIで表示される。UI不要なら update_cart。",
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True),
+        meta=_UI_META,
+    )
+    def apps_update_cart(item_key: ItemKey, qty: QtyOrZero) -> CallToolResult:
+        return _update_cart_impl(item_key, qty, "apps_update_cart")
+
+    @mcp.tool(
+        description="カートから商品を削除する。対応ホストでは対話UIで表示される。UI不要なら remove_from_cart。",
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True),
+        meta=_UI_META,
+    )
+    def apps_remove_from_cart(item_key: ItemKey) -> CallToolResult:
+        return _remove_from_cart_impl(item_key, "apps_remove_from_cart")
+
+    @mcp.tool(
+        description=(
+            "共有デモカートの内容を「注文内容の確認」として提示する（第1段階）。"
+            "明細・合計をスナップショットした未確定注文（pending）を作り、内容を返す。"
+            "対応ホストでは内容が対話UIで表示される。UI不要なら preview_order。"
+            "実際の決済・発送は行われない（勉強会デモ用）。"
+        ),
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
+        meta=_UI_META,
+    )
+    def apps_preview_order() -> CallToolResult:
+        return _preview_order_impl("apps_preview_order")
+
+    @mcp.tool(
+        description=(
+            "preview_order / apps_preview_order で提示した内容を「デモ注文」として確定する（第2段階）。"
+            "提示と同じスナップショットが確定され、確定後カートは空になる。"
+            "preview を先に実行すること。カートを変更すると提示はキャンセルされる。"
+            "対応ホストでは対話UIで表示される。UI不要なら confirm_order。"
+            "実際の決済・発送・在庫確定は一切行われない（勉強会デモ用の記録のみ）。"
+        ),
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False),
+        meta=_UI_META,
+    )
+    def apps_confirm_order() -> CallToolResult:
+        return _confirm_order_impl("apps_confirm_order")
+
+    @mcp.tool(
+        description="デモ用に共有カートを空にして初期状態へ戻す。対応ホストでは対話UIで表示される。UI不要なら reset_demo。",
+        annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True),
+        meta=_UI_META,
+    )
+    def apps_reset_demo() -> CallToolResult:
+        return _reset_demo_impl("apps_reset_demo")
 
     return mcp

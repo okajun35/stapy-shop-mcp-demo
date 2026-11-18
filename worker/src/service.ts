@@ -63,11 +63,13 @@ export interface SearchParams {
   sort?: "recommended" | "price-asc" | "price-desc" | "name";
   channel?: string;
   session_id?: string;
+  action?: string;
 }
 
 export async function searchProducts(db: D1Database, params: SearchParams = {}) {
   const { q = "", categories = null, max_price = null, in_stock_only = false,
-    featured_only = false, sort = "recommended", channel, session_id = DEMO_SESSION_ID } = params;
+    featured_only = false, sort = "recommended", channel, session_id = DEMO_SESSION_ID,
+    action = "search_products" } = params;
   if (max_price !== null && max_price < 0)
     throw new ShopError("invalid_input", "max_price は 0 以上を指定してください");
   let rows: Product[] = [...PRODUCTS];
@@ -83,7 +85,7 @@ export async function searchProducts(db: D1Database, params: SearchParams = {}) 
   else if (sort === "price-desc") rows.sort((a, b) => b.price - a.price);
   else if (sort === "name") rows.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   if (channel)
-    await log(db, channel, "search_products",
+    await log(db, channel, action,
       `q='${q}' categories=${categories ? JSON.stringify(categories) : null} max_price=${max_price} → ${rows.length}件`,
       session_id);
   return { count: rows.length, products: rows.map(publicProduct) };
@@ -93,7 +95,8 @@ export async function searchProducts(db: D1Database, params: SearchParams = {}) 
 
 interface CartRow { item_key: string; product_id: string; variant: string; qty: number }
 
-export async function getCart(db: D1Database, session_id = DEMO_SESSION_ID, channel?: string) {
+export async function getCart(db: D1Database, session_id = DEMO_SESSION_ID, channel?: string,
+  action = "get_cart") {
   const { results } = await db.prepare(
     "SELECT item_key, product_id, variant, qty FROM cart_items WHERE session_id = ? ORDER BY updated_at, item_key"
   ).bind(session_id).all<CartRow>();
@@ -111,7 +114,7 @@ export async function getCart(db: D1Database, session_id = DEMO_SESSION_ID, chan
   }
   const cart = { session_id, items, total, count: items.reduce((n, i) => n + i.qty, 0) };
   if (channel)
-    await log(db, channel, "get_cart", `${items.length}種 ${cart.count}点 合計¥${total}`, session_id);
+    await log(db, channel, action, `${items.length}種 ${cart.count}点 合計¥${total}`, session_id);
   return cart;
 }
 
@@ -143,7 +146,7 @@ async function cancelPendingOrders(db: D1Database, session_id: string) {
 }
 
 export async function addToCart(db: D1Database, product_id: string, qty = 1, variant = "",
-  session_id = DEMO_SESSION_ID, channel = "WEB") {
+  session_id = DEMO_SESSION_ID, channel = "WEB", action = "add_to_cart") {
   const product = getProduct(product_id);
   qty = validateQty(qty, 1);
   variant = validateVariant(BY_ID.get(product_id)!, variant || "");
@@ -164,13 +167,13 @@ export async function addToCart(db: D1Database, product_id: string, qty = 1, var
     ).bind(session_id, key, product_id, variant, newQty),
     db.prepare("UPDATE orders SET status = 'cancelled' WHERE session_id = ? AND status = 'pending'").bind(session_id),
   ]);
-  await log(db, channel, "add_to_cart",
+  await log(db, channel, action,
     `${product.name} ×${qty}` + (variant ? `（${variant}）` : ""), session_id);
   return getCart(db, session_id);
 }
 
 export async function updateCart(db: D1Database, item_key: string, qty: number,
-  session_id = DEMO_SESSION_ID, channel = "WEB") {
+  session_id = DEMO_SESSION_ID, channel = "WEB", action = "update_cart") {
   const product_id = item_key.split("|")[0];
   const variant = item_key.split("|")[1] ?? "";
   const master = BY_ID.get(product_id);
@@ -192,29 +195,30 @@ export async function updateCart(db: D1Database, item_key: string, qty: number,
     ).bind(session_id, item_key, product_id, variant, qty),
     db.prepare("UPDATE orders SET status = 'cancelled' WHERE session_id = ? AND status = 'pending'").bind(session_id),
   ]);
-  await log(db, channel, "update_cart", `${product.name} → ×${qty}`, session_id);
+  await log(db, channel, action, `${product.name} → ×${qty}`, session_id);
   return getCart(db, session_id);
 }
 
 export async function removeFromCart(db: D1Database, item_key: string,
-  session_id = DEMO_SESSION_ID, channel = "WEB") {
+  session_id = DEMO_SESSION_ID, channel = "WEB", action = "remove_from_cart") {
   const del = await db.prepare(
     "DELETE FROM cart_items WHERE session_id = ? AND item_key = ?"
   ).bind(session_id, item_key).run();
   if (!del.meta.changes) throw new ShopError("item_not_found", `カートに商品がありません: ${item_key}`);
   await cancelPendingOrders(db, session_id);
   const name = BY_ID.get(item_key.split("|")[0])?.name ?? item_key;
-  await log(db, channel, "remove_from_cart", `${name} を削除`, session_id);
+  await log(db, channel, action, `${name} を削除`, session_id);
   return getCart(db, session_id);
 }
 
 // --- demo / logs ---------------------------------------------------------
 
-export async function resetDemo(db: D1Database, session_id = DEMO_SESSION_ID, channel = "WEB") {
+export async function resetDemo(db: D1Database, session_id = DEMO_SESSION_ID, channel = "WEB",
+  action = "reset_demo") {
   const del = await db.prepare("DELETE FROM cart_items WHERE session_id = ?").bind(session_id).run();
   await cancelPendingOrders(db, session_id);
   const removed = del.meta.changes ?? 0;
-  await log(db, channel, "reset_demo", `カート ${removed}件をクリア`, session_id);
+  await log(db, channel, action, `カート ${removed}件をクリア`, session_id);
   return { ok: true, removed_items: removed, cart: await getCart(db, session_id) };
 }
 
@@ -233,7 +237,8 @@ export async function operationLogs(db: D1Database, limit = 100) {
 
 // --- orders（2段階デモ注文。実際の決済・発送・在庫確定は行われない）---------
 
-export async function previewOrder(db: D1Database, session_id = DEMO_SESSION_ID, channel = "WEB") {
+export async function previewOrder(db: D1Database, session_id = DEMO_SESSION_ID, channel = "WEB",
+  action = "preview_order") {
   const cart = await getCart(db, session_id);
   if (!cart.items.length)
     throw new ShopError("cart_empty", "カートが空です。商品を追加してから確認してください");
@@ -248,7 +253,7 @@ export async function previewOrder(db: D1Database, session_id = DEMO_SESSION_ID,
   const lastId = batch[1].meta.last_row_id as number;
   const order_no = `STAPY-DEMO-${String(lastId).padStart(5, "0")}`;
   await db.prepare("UPDATE orders SET order_no = ? WHERE id = ?").bind(order_no, lastId).run();
-  await log(db, channel, "preview_order",
+  await log(db, channel, action,
     `${order_no}: ${cart.count}点 合計¥${cart.total}（注文内容を提示）`, session_id);
   return {
     order_no, status: "pending", items: cart.items, total: cart.total, count: cart.count,
@@ -257,7 +262,8 @@ export async function previewOrder(db: D1Database, session_id = DEMO_SESSION_ID,
   };
 }
 
-export async function confirmOrder(db: D1Database, session_id = DEMO_SESSION_ID, channel = "WEB") {
+export async function confirmOrder(db: D1Database, session_id = DEMO_SESSION_ID, channel = "WEB",
+  action = "confirm_order") {
   const pending = await db.prepare(
     "SELECT order_no, items_json, total, channel, status, created_at FROM orders " +
     "WHERE session_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1"
@@ -274,7 +280,7 @@ export async function confirmOrder(db: D1Database, session_id = DEMO_SESSION_ID,
     throw new ShopError("no_pending_order", "確定できる注文がありません。先に preview_order で注文内容を提示してください");
   const items = JSON.parse(pending.items_json) as { qty: number }[];
   const count = items.reduce((n, i) => n + i.qty, 0);
-  await log(db, channel, "confirm_order",
+  await log(db, channel, action,
     `${pending.order_no}: ${count}点 合計¥${pending.total}（デモ注文を確定）`, session_id);
   return {
     order_no: pending.order_no, status: "confirmed", items, total: pending.total, count,

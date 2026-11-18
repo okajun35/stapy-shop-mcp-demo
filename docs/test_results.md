@@ -111,7 +111,7 @@ $ .venv/bin/python tests/four_way.py
 
 Streamable HTTP（`http://127.0.0.1:8000/mcp`）:
 
-- `tools/list`: 18ツール（モデル向け10 + ui_*8）
+- `tools/list`: 27ツール（モデル向け通常版9 + apps_* 10 + ui_*8）
 - `search_products {q:"LT",max_price:3000}` → text「検索結果 3件…」+ structuredContent `{count:3,...}`
 - `add_to_cart` → 「カートに追加しました。現在N点・合計¥Xです」+ structured
 - `get_cart` → 共有カート内容
@@ -126,13 +126,13 @@ Streamable HTTP（`http://127.0.0.1:8000/mcp`）:
 - プロトコルバージョン: `2026-07-28`（Client）/ `2025-11-25`（Inspector Legacy）両対応
 
 stdio（`.venv/bin/python -m stapy_shop --stdio`）:
-- 同一の18ツール・同一の共有カート（HTTP 側で追加した商品が見える）
+- 同一の27ツール・同一の共有カート（HTTP 側で追加した商品が見える）
 
 ## 5. MCP Apps 実描画検証（公式ホスト）
 
 **ホスト**: MCP Inspector 2.15.0（公式）
-- 「Apps」タブ → `browse_shop` 選択
-- ネットワークログ: `RESOURCES/READ ui://stapy/shop.html` OK、`TOOLS/CALL browse_shop` OK
+- 「Apps」タブ → `apps_browse_shop` 選択
+- ネットワークログ: `RESOURCES/READ ui://stapy/shop.html` OK、`TOOLS/CALL apps_browse_shop` OK
 - iframe 内にショップUI が **実際に描画**（商品カード20件・画像・価格・検索バー・カートチップ）
 
 **全画面フロー実測（Inspector iframe 内操作、15/15 PASS）**:

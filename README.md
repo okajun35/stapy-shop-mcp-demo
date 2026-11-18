@@ -145,20 +145,40 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 エンドポイント: `POST http://127.0.0.1:8000/mcp`（Streamable HTTP）
 または `python -m stapy_shop --stdio`
 
-### モデル向けツール（channel=MCP）
+### モデル向けツール（channel=MCP）— 通常版（UI連携なし）
 
-| ツール | 機能 | 注釈 | UI |
-|--------|------|------|----|
-| `search_products` | キーワード・カテゴリ・価格上限・並び替えで検索 | readOnly | `ui://stapy/shop.html` |
-| `get_product` | 商品IDから詳細（価格・在庫・特徴・仕様） | readOnly | 同上 |
-| `get_cart` | 共有カートの明細・合計取得 | readOnly | — |
-| `add_to_cart` | 商品をカートへ（価格はサーバーマスター） | 非readOnly・非idempotent | 同上 |
-| `update_cart` | 数量変更（`qty=0` で削除） | 非readOnly・idempotent | — |
-| `remove_from_cart` | カートから削除 | 非readOnly・destructive・idempotent | — |
-| `preview_order` | カート内容を「注文内容の確認」として提示（pending。まだ確定しない） | 非readOnly・非idempotent | `ui://stapy/shop.html` |
-| `confirm_order` | preview で提示した内容をデモ注文として確定（確定後カートは空に） | 非readOnly・destructive・非idempotent | `ui://stapy/shop.html` |
-| `browse_shop` | 対話ショップUIを開く | readOnly | `ui://stapy/shop.html` |
-| `reset_demo` | カートを空にして初期状態へ | destructive・idempotent | — |
+どのクライアントでも呼べて **UIは絶対に表示されない**（`_meta.ui` なし）純粋MCPツール。
+
+| ツール | 機能 | 注釈 |
+|--------|------|------|
+| `search_products` | キーワード・カテゴリ・価格上限・並び替えで検索 | readOnly |
+| `get_product` | 商品IDから詳細（価格・在庫・特徴・仕様） | readOnly |
+| `get_cart` | 共有カートの明細・合計取得 | readOnly |
+| `add_to_cart` | 商品をカートへ（価格はサーバーマスター） | 非readOnly・非idempotent |
+| `update_cart` | 数量変更（`qty=0` で削除） | 非readOnly・idempotent |
+| `remove_from_cart` | カートから削除 | 非readOnly・destructive・idempotent |
+| `preview_order` | カート内容を「注文内容の確認」として提示（pending。まだ確定しない） | 非readOnly・非idempotent |
+| `confirm_order` | preview で提示した内容をデモ注文として確定（確定後カートは空に） | 非readOnly・destructive・非idempotent |
+| `reset_demo` | カートを空にして初期状態へ | destructive・idempotent |
+
+### モデル向けツール（channel=MCP）— `apps_*` 版（UI連携あり）
+
+全操作に `apps_` プレフィックス版を用意。`_meta.ui.resourceUri` 付きのため、
+**MCP Apps 対応ホストでは呼び出し結果が対話UIに自動表示**される。
+実装・返り値は同名の通常ツールと同一（ログの action 名だけ `apps_*` になる）。
+
+| ツール | 対応する通常ツール |
+|--------|------------------|
+| `apps_browse_shop` | 対話ショップUIを開く入口（通常版なし・UI専用） |
+| `apps_search_products` | `search_products` |
+| `apps_get_product` | `get_product` |
+| `apps_get_cart` | `get_cart` |
+| `apps_add_to_cart` | `add_to_cart` |
+| `apps_update_cart` | `update_cart` |
+| `apps_remove_from_cart` | `remove_from_cart` |
+| `apps_preview_order` | `preview_order` |
+| `apps_confirm_order` | `confirm_order` |
+| `apps_reset_demo` | `reset_demo` |
 
 注文確定は**2段階**です：`preview_order` が提示時点の明細・合計を pending
 注文として保存し、`confirm_order` がそのスナップショットを原子的に確定
@@ -190,7 +210,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 | MIME | `text/html;profile=mcp-app` |
 | UI SDK | `@modelcontextprotocol/ext-apps` v2.0.4（`mcp_app/ext_apps.js` にベンダリング、外部CDN非依存） |
 | CSP | `resourceDomains`: `http://127.0.0.1:8000`・`http://localhost:8000`（商品画像のため） |
-| 関連ツール | `_meta.ui.resourceUri` で `search_products`/`get_product`/`add_to_cart`/`browse_shop` と結合 |
+| 関連ツール | `_meta.ui.resourceUri` で `apps_*` 系ツール（`apps_browse_shop`/`apps_search_products` 等）および `ui_*` 系と結合 |
 
 ---
 
@@ -209,7 +229,7 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 ### MCP Apps 対応ホスト
 
 - **検証済**: MCP Inspector 2.15.0（`npx -y @modelcontextprotocol/inspector@2.15.0`）。
-  手順は `docs/demo_runbook.md`。接続 → 上部「Apps」タブ → `browse_shop` で
+  手順は `docs/demo_runbook.md`。接続 → 上部「Apps」タブ → `apps_browse_shop` で
   `ui://stapy/shop.html` が iframe 内に描画され、UIのボタンが `callServerTool` 経由で
   `ui_*` ツールを呼びカートが更新されます（スクリーンショット: `docs/screenshots/`）。
 - ext-apps リポジトリの `basic-host` 等でも動くはずですが、本環境では Inspector で検証済み。

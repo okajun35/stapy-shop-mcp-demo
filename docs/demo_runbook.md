@@ -80,7 +80,7 @@ Inspector（`http://127.0.0.1:6274`）で stapy-shop → 「Tools」タブ：
 
 Inspector の「**Apps**」タブ：
 
-1. `browse_shop` を選択 → **`ui://stapy/shop.html` が iframe に描画される**
+1. `apps_browse_shop` を選択 → **`ui://stapy/shop.html` が iframe に描画される**
    → 「RESOURCES/READ でHTMLを取得、ツール結果で初期化されています」
 2. UIの検索欄に `タイマー` または価格上限 `3000` → 検索ボタン
    → iframe内で `ui_search_products` が走りカードが絞り込まれる
@@ -185,7 +185,7 @@ stdio で接続する場合：
 | 症状 | 対処 |
 |------|------|
 | Inspector が `Connected` にならない | サーバーが起動しているか（`curl http://127.0.0.1:8000/api/products`）、URL が `/mcp` か |
-| Apps タブにツールが出ない | サーバーを最新コードで再起動。`_meta.ui.resourceUri` 付きの `browse_shop` 等が見えるはず |
+| Apps タブにツールが出ない | サーバーを最新コードで再起動。`_meta.ui.resourceUri` 付きの `apps_*`・`ui_*` 系ツールが見えるはず |
 | Apps が真っ白 | Inspector を一度リロード。Messages で `RESOURCES/READ ui://stapy/shop.html` が OK か確認 |
 | WebMCP バッジが出ない | Chromium 156 + フラグかを確認。Chrome 144 では現状非対応（仕様上の制約） |
 | カートが変 | `curl -X POST http://127.0.0.1:8000/api/demo/reset` で初期化 |

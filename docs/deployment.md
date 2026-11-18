@@ -62,8 +62,10 @@ npx wrangler deploy
   `stapy_shop.db` とはカート・ログ・注文を共有しない。
 - **MCP 実装は自前の JSON-RPC**: `initialize`/`tools/list`/`tools/call`/
   `resources/*`/`ping`/`notifications/*` を実装。応答は SSE フレーム1発
-  （Streamable HTTP 仕様の範囲内）。GET /mcp のサーバー→クライアント
-  listen ストリームは未提供（仕様上 optional）。stdio モードはなし。
+  （Streamable HTTP 仕様の範囲内）。`Accept` に `text/event-stream` が
+  含まれないクライアントには `application/json` で返す互換措置あり。
+  GET /mcp のサーバー→クライアント listen ストリームは未提供（仕様上 optional）。
+  stdio モードはなし。
 - **`mcp_sessions` テーブル**: Apps 拡張ネゴシエーション結果を D1 に保存し
   `ui_*` の `_require_apps` 相当を再現（非Appsクライアントは `[forbidden]`）。
 - **`/static/*` のリライト**: Assets は `stapy_shop/static` 直下を `/` に
