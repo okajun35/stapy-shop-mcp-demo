@@ -1,8 +1,12 @@
 """FastAPI アプリケーション。
 
-静的ファイル（既存EC画面）・REST API・MCP（Streamable HTTP /mcp）を
+静的ファイル（既存EC画面）・REST API・MCP（Streamable HTTP）を
 1つの uvicorn プロセスで提供する。カートはサーバー側 SQLite で管理し、
 localStorage は使わない（MCP 経由との状態共有のため）。
+
+MCP は接続単位で2系統に分離:
+  /mcp      — 通常MCP（UI連携なしの9ツールのみ。UIは一切出ない）
+  /mcp-apps — MCP Apps（apps_* 10 + ui_* 8、全ツールUI連携）
 """
 
 from __future__ import annotations
@@ -28,15 +32,27 @@ DB_PATH = os.environ.get("STAPY_DB", str(Path(__file__).parent.parent / "stapy_s
 
 db = Database(DB_PATH)
 service = ShopService(db)
-mcp_server = build_mcp_server(service, BASE_URL)
+mcp_server = build_mcp_server(service, BASE_URL, "plain")
+mcp_apps_server = build_mcp_server(service, BASE_URL, "apps")
 mcp_asgi = mcp_server.streamable_http_app()
+mcp_apps_asgi = mcp_apps_server.streamable_http_app()
+
+
+async def _mcp_dispatch(scope, receive, send):
+    # streamable_http_app の内部ルートは /mcp 固定。
+    # /mcp-apps は Apps 側サーバーへ内部パスを書き換えて流す。
+    if scope.get("type") == "http" and scope.get("path") == "/mcp-apps":
+        scope = dict(scope, path="/mcp", raw_path=b"/mcp")
+        await mcp_apps_asgi(scope, receive, send)
+    else:
+        await mcp_asgi(scope, receive, send)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # マウントした MCP アプリの lifespan は Starlette が実行しないため、
     # session_manager をここで起動する（SDK 公式のマウント手順）。
-    async with mcp_server.session_manager.run():
+    async with mcp_server.session_manager.run(), mcp_apps_server.session_manager.run():
         yield
 
 
@@ -232,9 +248,10 @@ def page_legacy_detail():
 app.mount("/images", StaticFiles(directory=STATIC_DIR / "images"), name="images")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# MCP（Streamable HTTP）。内部ルートは /mcp。最後にマウントし、
+# MCP（Streamable HTTP）。/mcp → 通常ツール、/mcp-apps → Apps 専用サーバー。
+# 内部ルートは /mcp 固定なので _mcp_dispatch で振り分ける。最後にマウントし、
 # /api/*・/images/* などを先のルートで処理させる。
-app.mount("/", mcp_asgi, name="mcp")
+app.mount("/", _mcp_dispatch, name="mcp")
 
 
 def main() -> None:

@@ -14,9 +14,11 @@ def main() -> None:
     if "--stdio" in sys.argv[1:]:
         import anyio
 
-        from .api import mcp_server  # サービス・商品マスター共有のため同じサーバー
+        from .api import BASE_URL, service  # サービス・商品マスター共有のため同じ service
+        from .mcp_server import build_mcp_server
 
-        anyio.run(mcp_server.run_stdio_async)
+        # stdio は Inspector 検証・worker/build.py の生成用に全ツールを公開
+        anyio.run(build_mcp_server(service, BASE_URL, "all").run_stdio_async)
         return
 
     from .api import main as http_main

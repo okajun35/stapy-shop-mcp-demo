@@ -109,9 +109,12 @@ $ .venv/bin/python tests/four_way.py
 
 ## 4. MCP プロトコル手動検証（Python Client）
 
-Streamable HTTP（`http://127.0.0.1:8000/mcp`）:
+Streamable HTTP（接続単位で2エンドポイントに分離）:
 
-- `tools/list`: 27ツール（モデル向け通常版9 + apps_* 10 + ui_*8）
+`/mcp`（通常接続・UIなし）:
+- `tools/list`: 通常9ツールのみ（`_meta.ui` 付きツール0件）
+- `resources/list`: 空、`resources/read ui://stapy/shop.html` → `Resource not found`
+- `tools/call apps_search_products` / `ui_get_cart` → `Unknown tool`（公開外は呼び出し不可）
 - `search_products {q:"LT",max_price:3000}` → text「検索結果 3件…」+ structuredContent `{count:3,...}`
 - `add_to_cart` → 「カートに追加しました。現在N点・合計¥Xです」+ structured
 - `get_cart` → 共有カート内容
@@ -119,18 +122,23 @@ Streamable HTTP（`http://127.0.0.1:8000/mcp`）:
   structuredContent `{order_no, status:"pending", items, total, demo:true}`
 - `confirm_order` → structuredContent `{order_no, status:"confirmed", ...}`＋カート空化
 - `confirm_order`（previewなし）→ `isError` `[no_pending_order]`、previewは空カートで `[cart_empty]`
-- `ui_preview_order`/`ui_confirm_order`（非Appsクライアント）→ `isError` `[forbidden]`
-- `resources/list` / `resources/read` → `ui://stapy/shop.html` `text/html;profile=mcp-app`（Appsネゴシエーション済みクライアント）
-- `ui_*` ツール: 非Appsクライアントからは `[forbidden]` で拒否
 - エラーケース: `product_not_found` / qty 0・999・-1 バリデーション
 - プロトコルバージョン: `2026-07-28`（Client）/ `2025-11-25`（Inspector Legacy）両対応
 
+`/mcp-apps`（MCP Apps 接続・全ツールUI連携）:
+- `tools/list`: 18ツール（`apps_*` 10 + `ui_*` 8、全件 `_meta.ui.resourceUri` 付き）
+- `resources/list` / `resources/read` → `ui://stapy/shop.html` `text/html;profile=mcp-app`
+- `tools/call search_products`（通常ツール名）→ `Unknown tool`
+- `apps_search_products {q:"LT"}` → 検索3件、`ui_get_cart` → カート取得（Apps拡張ネゴシエーション済み）
+- `ui_*` ツール: 非Appsクライアントからは `[forbidden]` で拒否
+- 操作ログは channel=`MCP_APPS`・action=`apps_*`/`ui_*` 名で記録
+
 stdio（`.venv/bin/python -m stapy_shop --stdio`）:
-- 同一の27ツール・同一の共有カート（HTTP 側で追加した商品が見える）
+- 全27ツールを統合公開（検証・`worker/build.py` 生成用）・同一の共有カート
 
 ## 5. MCP Apps 実描画検証（公式ホスト）
 
-**ホスト**: MCP Inspector 2.15.0（公式）
+**ホスト**: MCP Inspector 2.15.0（公式）— `/mcp-apps` 接続
 - 「Apps」タブ → `apps_browse_shop` 選択
 - ネットワークログ: `RESOURCES/READ ui://stapy/shop.html` OK、`TOOLS/CALL apps_browse_shop` OK
 - iframe 内にショップUI が **実際に描画**（商品カード20件・画像・価格・検索バー・カートチップ）

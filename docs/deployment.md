@@ -6,7 +6,14 @@ FastAPI + SQLite のローカル版を、**Cloudflare Workers + D1 + Workers Sta
 ## 公開 URL
 
 - Web UI: `https://stapy.studiooverdrive.com/`
-- MCP（Streamable HTTP）: `https://stapy.studiooverdrive.com/mcp`
+- MCP・通常接続（Streamable HTTP）: `https://stapy.studiooverdrive.com/mcp`
+  （UI連携なし9ツールのみ。`_meta.ui` なし、UIリソースなし）
+- MCP・MCP Apps 接続（Streamable HTTP）: `https://stapy.studiooverdrive.com/mcp-apps`
+  （`apps_*` 10 + `ui_*` 8、全ツール `_meta.ui` 付き、`ui://stapy/shop.html` あり）
+
+接続単位の分離のため、非公開側のツール呼び出しは `Unknown tool` を返す
+（`/mcp` で `apps_search_products` 不可、`/mcp-apps` で `search_products` 不可）。
+末尾スラッシュ付き（`/mcp/`、`/mcp-apps/`）も受理する。
 
 購入済みドメイン `studiooverdrive.com`（同一アカウントで DNS 管理済みゾーン）の
 サブドメインを **Worker Custom Domain** として紐付け
@@ -24,7 +31,7 @@ wrangler.toml に追記してデプロイする。
 | SQLite（`stapy_shop.db`） | D1 `stapy-shop-db`（同一スキーマ + `mcp_sessions`） |
 | `service.py` | `worker/src/service.ts`（同等ロジック移植） |
 | `mcp_server.py`（python-mcp SDK） | `index.ts` 内の JSON-RPC 実装（`tools/list` 等は Python 側から生成したものを返す） |
-| `app.mount("/mcp")` | `/mcp` ルートを自前実装（initialize/tools/resources/ping + SSE 応答） |
+| `app.mount("/")` + `/mcp-apps` ディスパッチ | `/mcp`・`/mcp-apps` ルートを自前実装（initialize/tools/resources/ping + SSE 応答）。tools/list は `_meta.ui` 有無でエンドポイント別に絞込 |
 
 ## ファイル構成
 
@@ -75,6 +82,24 @@ npx wrangler deploy
   add_to_cart の読み取り→書込みは非原子的（デモ用途では実害なし）。
 - **同時実行**: Workers は分離された isolate で動くため「同じカートを同時に
   触る」競合は D1 の逐次性に依存。テスト用の完全な直列化は行っていない。
+
+## ChatGPT / MCPクライアント側の設定
+
+通常MCP と MCP Apps を別接続として比較するため、コネクタを2件登録する:
+
+| コネクタ | URL | 見えるツール |
+|----------|-----|-------------|
+| stapy商店（MCP） | `https://stapy.studiooverdrive.com/mcp` | 通常9ツール（UIは出ない） |
+| stapy商店（MCP Apps） | `https://stapy.studiooverdrive.com/mcp-apps` | `apps_*` 10（結果が対話UIに表示） |
+
+注意:
+- コネクタは登録時の `tools/list` をキャッシュするため、サーバー側のツール
+  構成を変更したら**コネクタを削除→再登録**（または Refresh）しないと
+  古いツール名・`_meta.ui` のまま動作する。
+- `initialize` 応答の `serverInfo.version` が `...-plain`（/mcp）/
+  `...-apps`（/mcp-apps）なので、実際に繋いだ側を識別できる。
+- ChatGPT は `Mcp-Session-Id` を送らないステートレス接続のことがある
+  （ui_* ツールはその場合も呼び出し可。検証不可の旨は `MCP_DEBUG` ログに残る）。
 
 ## セキュリティ上の注意（デモ用途）
 

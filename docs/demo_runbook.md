@@ -25,7 +25,9 @@ npx -y @modelcontextprotocol/inspector@2.15.0   # Inspector 起動（http://127.
 ブラウザで確認：
 - `http://127.0.0.1:8000/` → 商品一覧20件が表示される
 - `http://127.0.0.1:8000/logs.html` → 操作ログページが開く
-- Inspector の stapy-shop カードのスイッチを ON → `Connected (MCP 2025-11-25)` になる
+- Inspector の stapy-shop カード（`/mcp` 接続）のスイッチを ON → `Connected` になる。
+  同様に stapy-shop-apps カード（`/mcp-apps` 接続）も ON にする
+  （2サーバー登録は §2「Inspector 接続手順」参照）
 
 **デモ直前に必ず**: `↺ デモリセット` ボタン（ページ上部バナー）か
 `curl -X POST http://127.0.0.1:8000/api/demo/reset` でカートを空にする。
@@ -61,7 +63,8 @@ npx -y @modelcontextprotocol/inspector@2.15.0   # Inspector 起動（http://127.
 
 ### 4:30–7:00 方式② MCP — AIのツール呼び出し（UIなし）
 
-Inspector（`http://127.0.0.1:6274`）で stapy-shop → 「Tools」タブ：
+Inspector（`http://127.0.0.1:6274`）で **stapy-shop（`/mcp` 接続）** → 「Tools」タブ
+（この接続には `apps_*`/`ui_*`/`ui://` リソースが一切存在しない）：
 
 1. `reset_demo` を実行（または共有カートであることを示すため `get_cart` から）
    → 「先ほどの人間が入れた2点が見えます（共有状態）」
@@ -78,7 +81,7 @@ Inspector（`http://127.0.0.1:6274`）で stapy-shop → 「Tools」タブ：
 
 ### 7:00–10:00 方式③ MCP Apps — チャット内の対話UI
 
-Inspector の「**Apps**」タブ：
+Inspector で **stapy-shop-apps（`/mcp-apps` 接続）** に切り替え、「**Apps**」タブ：
 
 1. `apps_browse_shop` を選択 → **`ui://stapy/shop.html` が iframe に描画される**
    → 「RESOURCES/READ でHTMLを取得、ツール結果で初期化されています」
@@ -89,10 +92,10 @@ Inspector の「**Apps**」タブ：
 4. カートパネル下の「注文を確定する（デモ）」→ `ui_preview_order` →
    UI内に確認モーダル →「この内容で確定する」→ `ui_confirm_order` で
    注文番号がUI内に表示される（カートは空に）
-5. 通常MCPの `get_cart`（Toolsタブ）でカートが空になったことを確認
+5. 通常MCP側 stapy-shop（`/mcp`）の `get_cart` でカートが空になったことを確認
    → 「**同じカート**です」
 6. `logs.html` で channel=MCP_APPS の行を見せる
-   → 「ui_* ツールはUIからしか呼べないので、経路が確定します」
+   → 「/mcp-apps 接続の操作は `apps_*` 名・MCP_APPS で記録されます」
 
 **言いポイント**: 「見た目は普通のECですが、**MCPプロトコルで**ツールを呼んでいます。
 iframeに普通のページを置いたわけではありません」
@@ -156,12 +159,15 @@ await document.modelContext.executeTool(o, {});
 
 1. `npx -y @modelcontextprotocol/inspector@2.15.0` を起動
 2. `http://127.0.0.1:6274?MCP_INSPECTOR_API_TOKEN=<起動時に表示されたトークン>` を開く
-3. 「Add Servers」→「Add manually」
-4. Server ID: `stapy-shop`、Transport: `streamable-http`、URL: `http://127.0.0.1:8000/mcp` → Add
-5. stapy-shop カード右上の **接続スイッチを ON** → `Connected` / `MCP 2025-11-25`
-6. 上部タブ: **Tools**（通常MCP）/ **Apps**（MCP Apps UI）
+3. 「Add Servers」→「Add manually」で **2件登録**：
+   - Server ID: `stapy-shop`、Transport: `streamable-http`、URL: `http://127.0.0.1:8000/mcp`
+     （通常MCP。UI連携なし9ツールのみ）
+   - Server ID: `stapy-shop-apps`、Transport: `streamable-http`、URL: `http://127.0.0.1:8000/mcp-apps`
+     （MCP Apps。`apps_*` 10 + `ui_*` 8、UIリソースあり）
+4. 各カード右上の **接続スイッチを ON** → `Connected` / `MCP 2025-11-25`
+5. stapy-shop（/mcp）: **Tools** タブのみ／ stapy-shop-apps（/mcp-apps）: **Tools** + **Apps** タブ
 
-stdio で接続する場合：
+stdio で接続する場合（全27ツールが1接続に見える統合モード）：
 - Transport: `stdio (local process)`、Command: `<project>/.venv/bin/python`、
   Arguments: `-m` `stapy_shop` `--stdio`、Working directory: `<project>`
 
@@ -184,8 +190,9 @@ stdio で接続する場合：
 
 | 症状 | 対処 |
 |------|------|
-| Inspector が `Connected` にならない | サーバーが起動しているか（`curl http://127.0.0.1:8000/api/products`）、URL が `/mcp` か |
-| Apps タブにツールが出ない | サーバーを最新コードで再起動。`_meta.ui.resourceUri` 付きの `apps_*`・`ui_*` 系ツールが見えるはず |
+| Inspector が `Connected` にならない | サーバーが起動しているか（`curl http://127.0.0.1:8000/api/products`）、URL が `/mcp` か `/mcp-apps` か（末尾スラッシュは両方許容） |
+| Apps タブにツールが出ない | `/mcp` 側接続にはUI連携ツールがない。**`/mcp-apps` 接続**に切り替える |
+| `Unknown tool` が返る | 接続先のエンドポイントにそのツールが公開されていない（`/mcp` は通常ツールのみ、`/mcp-apps` は `apps_*`/`ui_*` のみ） |
 | Apps が真っ白 | Inspector を一度リロード。Messages で `RESOURCES/READ ui://stapy/shop.html` が OK か確認 |
 | WebMCP バッジが出ない | Chromium 156 + フラグかを確認。Chrome 144 では現状非対応（仕様上の制約） |
 | カートが変 | `curl -X POST http://127.0.0.1:8000/api/demo/reset` で初期化 |

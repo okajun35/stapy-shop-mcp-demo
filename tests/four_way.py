@@ -84,7 +84,7 @@ async def via_mcp_apps():
 
     reset()
     ext = advertise(EXTENSION_ID, {"mimeTypes": [APP_MIME_TYPE]})
-    async with Client(BASE + "/mcp", extensions=[ext]) as client:
+    async with Client(BASE + "/mcp-apps", extensions=[ext]) as client:
         await client.call_tool("ui_search_products", {"q": "LT", "max_price": 3000})
         await client.call_tool("ui_add_to_cart", {"product_id": "lt-timer", "qty": 1})
         await client.call_tool("ui_add_to_cart", {"product_id": "sticker-set", "qty": 1})

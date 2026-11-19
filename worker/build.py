@@ -83,11 +83,15 @@ def gen_tools() -> None:
         tools = res[0]["result"]
         resources = res[1]["result"]
         instructions = init_res[0]["result"].get("instructions", "")
+        # エンドポイント別 instructions（/mcp は plain、/mcp-apps は apps）
+        from stapy_shop.mcp_server import _instructions
         (OUT / "tools.ts").write_text(
             "// 自動生成: MCP initialize + tools/list + resources/list の実レスポンス\n"
             "export const TOOLS_LIST = " + json.dumps(tools, ensure_ascii=False, indent=1) + ";\n"
             "export const RESOURCES_LIST = " + json.dumps(resources, ensure_ascii=False, indent=1) + ";\n"
-            "export const INSTRUCTIONS = " + json.dumps(instructions, ensure_ascii=False) + ";\n",
+            "export const INSTRUCTIONS = " + json.dumps(instructions, ensure_ascii=False) + ";\n"
+            "export const INSTRUCTIONS_PLAIN = " + json.dumps(_instructions("plain"), ensure_ascii=False) + ";\n"
+            "export const INSTRUCTIONS_APPS = " + json.dumps(_instructions("apps"), ensure_ascii=False) + ";\n",
             encoding="utf-8",
         )
         print(f"tools.ts: {len(tools['tools'])} tools / {len(resources['resources'])} resources")

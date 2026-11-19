@@ -3,7 +3,7 @@
 // REST /api/*・MCP Streamable HTTP /mcp・静的アセットを同一Workerで提供。
 // 実際の販売・決済・発送は行われない（勉強会デモ）。
 
-import { TOOLS_LIST, RESOURCES_LIST, INSTRUCTIONS } from "./generated/tools";
+import { TOOLS_LIST, RESOURCES_LIST, INSTRUCTIONS_PLAIN, INSTRUCTIONS_APPS } from "./generated/tools";
 import { SHOP_HTML } from "./generated/uiHtml";
 import * as svc from "./service";
 import { ShopError, DEMO_SESSION_ID } from "./service";
@@ -70,73 +70,74 @@ function shopErr(e: unknown): Response {
 // MCP ツール実装（mcp_server.py と同じ応答テキストを再現）
 // ---------------------------------------------------------------------------
 
-// 第3引数 action には呼ばれたツール名が入る（操作ログの action 列に使う。
-// apps_* ツールは同名実装を共有しつつ、ログ上は apps_* 名で残る）
-type ToolFn = (env: Env, args: any, action: string) => Promise<{ text: string; data?: any }>;
+// 第3引数 action には呼ばれたツール名、第4引数 channel にはエンドポイント由来の
+// ログチャネルが入る（/mcp → "MCP"、/mcp-apps → "MCP_APPS"）。
+// apps_* ツールは同名実装を共有しつつ、ログ上は apps_* 名・MCP_APPS で残る。
+type ToolFn = (env: Env, args: any, action: string, channel: string) => Promise<{ text: string; data?: any }>;
 
 const MODEL_TOOLS: Record<string, ToolFn> = {
-  async search_products(env, a, action) {
+  async search_products(env, a, action, channel) {
     const r = await svc.searchProducts(env.DB, {
       q: a?.q ?? "", categories: a?.category ? [a.category] : null,
       max_price: a?.max_price ?? null, sort: a?.sort ?? "recommended",
-      channel: "MCP", session_id: DEMO_SESSION_ID, action,
+      channel: channel, session_id: DEMO_SESSION_ID, action,
     });
     const lines = [`検索結果 ${r.count}件:`,
       ...r.products.map((p: any) => `- ${p.name}（${p.id}）¥${p.price} 在庫${p.stock}`)];
     return { text: lines.join("\n"), data: r };
   },
-  async get_product(env, a, action) {
+  async get_product(env, a, action, channel) {
     const p = svc.getProduct(a?.product_id);
-    await svc.log(env.DB, "MCP", action, p.name, DEMO_SESSION_ID);
+    await svc.log(env.DB, channel, action, p.name, DEMO_SESSION_ID);
     return { text: `${p.name} ¥${p.price} 在庫${p.stock}\n${JSON.stringify(p)}`, data: { product: p } };
   },
-  async get_cart(env, _a, action) {
-    const cart = await svc.getCart(env.DB, DEMO_SESSION_ID, "MCP", action);
+  async get_cart(env, _a, action, channel) {
+    const cart = await svc.getCart(env.DB, DEMO_SESSION_ID, channel, action);
     const text = cart.items.length
       ? [`カート: ${cart.count}点 合計 ¥${cart.total}`,
         ...cart.items.map((i: any) => `- ${i.name} ×${i.qty} = ¥${i.subtotal}（key: ${i.key}）`)].join("\n")
       : "カートは空です。";
     return { text, data: cart };
   },
-  async add_to_cart(env, a, action) {
-    const cart = await svc.addToCart(env.DB, a?.product_id, a?.qty ?? 1, a?.variant ?? "", DEMO_SESSION_ID, "MCP", action);
+  async add_to_cart(env, a, action, channel) {
+    const cart = await svc.addToCart(env.DB, a?.product_id, a?.qty ?? 1, a?.variant ?? "", DEMO_SESSION_ID, channel, action);
     return {
       text: `カートに追加しました。現在 ${cart.count}点・合計 ¥${cart.total} です。`,
       data: { added: { product_id: a?.product_id, qty: a?.qty ?? 1, variant: a?.variant ?? "" }, cart },
     };
   },
-  async update_cart(env, a, action) {
-    const cart = await svc.updateCart(env.DB, a?.item_key, a?.qty, DEMO_SESSION_ID, "MCP", action);
+  async update_cart(env, a, action, channel) {
+    const cart = await svc.updateCart(env.DB, a?.item_key, a?.qty, DEMO_SESSION_ID, channel, action);
     return { text: `数量を更新しました。現在 ${cart.count}点・合計 ¥${cart.total} です。`, data: cart };
   },
-  async remove_from_cart(env, a, action) {
-    const cart = await svc.removeFromCart(env.DB, a?.item_key, DEMO_SESSION_ID, "MCP", action);
+  async remove_from_cart(env, a, action, channel) {
+    const cart = await svc.removeFromCart(env.DB, a?.item_key, DEMO_SESSION_ID, channel, action);
     return { text: `削除しました。現在 ${cart.count}点・合計 ¥${cart.total} です。`, data: cart };
   },
-  async apps_browse_shop(env, _a, action) {
-    const catalog = await svc.searchProducts(env.DB, { channel: "MCP", session_id: DEMO_SESSION_ID, action });
+  async apps_browse_shop(env, _a, action, channel) {
+    const catalog = await svc.searchProducts(env.DB, { channel: channel, session_id: DEMO_SESSION_ID, action });
     const cart = await svc.getCart(env.DB, DEMO_SESSION_ID);
     return {
       text: `stapy商店: ${catalog.count}件の商品があります。対話UIを表示するか search_products で検索してください。`,
       data: { products: catalog.products, cart },
     };
   },
-  async preview_order(env, _a, action) {
-    const o = await svc.previewOrder(env.DB, DEMO_SESSION_ID, "MCP", action);
+  async preview_order(env, _a, action, channel) {
+    const o = await svc.previewOrder(env.DB, DEMO_SESSION_ID, channel, action);
     const lines = [`注文内容の確認（未確定）: ${o.order_no}（${o.count}点 合計 ¥${o.total}）`,
       ...o.items.map((i: any) => `- ${i.name} ×${i.qty} = ¥${i.subtotal}`),
       "この内容でよければ confirm_order を実行してください（デモ。実際の決済・発送は行われません）"];
     return { text: lines.join("\n"), data: o };
   },
-  async confirm_order(env, _a, action) {
-    const o = await svc.confirmOrder(env.DB, DEMO_SESSION_ID, "MCP", action);
+  async confirm_order(env, _a, action, channel) {
+    const o = await svc.confirmOrder(env.DB, DEMO_SESSION_ID, channel, action);
     const lines = [`デモ注文を確定しました: ${o.order_no}（${o.count}点 合計 ¥${o.total}）`,
       ...o.items.map((i: any) => `- ${i.name} ×${i.qty} = ¥${i.subtotal}`),
       "※ 実際の決済・発送は行われません（デモ）"];
     return { text: lines.join("\n"), data: o };
   },
-  async reset_demo(env, _a, action) {
-    await svc.resetDemo(env.DB, DEMO_SESSION_ID, "MCP", action);
+  async reset_demo(env, _a, action, channel) {
+    await svc.resetDemo(env.DB, DEMO_SESSION_ID, channel, action);
     return { text: "デモをリセットしました。カートは空です。", data: { ok: true } };
   },
 };
@@ -177,7 +178,13 @@ const UI_TOOLS: Record<string, (env: Env, args: any) => Promise<any>> = {
 // MCP Streamable HTTP
 // ---------------------------------------------------------------------------
 
-// INSTRUCTIONS は build.py が実サーバーから生成（mcp_server.py が正本）
+// TOOLS_LIST / INSTRUCTIONS_* は build.py が実サーバーから生成（mcp_server.py が正本）。
+// エンドポイントで公開面を分離: /mcp はUI連携なし通常ツールのみ、
+// /mcp-apps は _meta.ui 付きツール（apps_* + ui_*）のみ。
+const PLAIN_TOOLS = { tools: TOOLS_LIST.tools.filter((t: any) => !t._meta?.ui) };
+const APPS_TOOLS = { tools: TOOLS_LIST.tools.filter((t: any) => !!t._meta?.ui) };
+const PLAIN_NAMES = new Set(PLAIN_TOOLS.tools.map((t: any) => t.name));
+const APPS_NAMES = new Set(APPS_TOOLS.tools.map((t: any) => t.name));
 
 const CAPABILITIES = {
   prompts: { listChanged: false },
@@ -197,7 +204,9 @@ async function mcpSupportsUi(env: Env, sessionId: string | null): Promise<boolea
   return !!row?.supports_ui;
 }
 
-async function handleMcp(req: Request, env: Env, origin: string): Promise<Response> {
+// appsOnly: /mcp-apps 接続か。true なら UI連携ツールのみ公開、
+// false（/mcp）ならUI連携なし通常ツールのみ公開し UI関連は一切返さない。
+async function handleMcp(req: Request, env: Env, origin: string, appsOnly: boolean): Promise<Response> {
   if (req.method === "GET") {
     // サーバー→クライアントのlistenストリームは提供しない（仕様上optional）
     return new Response(": stapy-shop\n\n", {
@@ -239,25 +248,26 @@ async function handleMcp(req: Request, env: Env, origin: string): Promise<Respon
         jsonrpc: "2.0", id,
         result: {
           capabilities: CAPABILITIES,
-          instructions: INSTRUCTIONS,
+          instructions: appsOnly ? INSTRUCTIONS_APPS : INSTRUCTIONS_PLAIN,
           protocolVersion: params?.protocolVersion ?? "2025-03-26",
-          serverInfo: { name: "stapy-shop", version: "" },
+          serverInfo: { name: "stapy-shop", version: appsOnly ? "0.3.0-apps" : "0.3.0-plain" },
         },
       }, 200, { "Mcp-Session-Id": sessionId });
     }
     case "ping":
       return mcpReply(req, { jsonrpc: "2.0", id, result: {} });
     case "tools/list":
-      return mcpReply(req, { jsonrpc: "2.0", id, result: TOOLS_LIST });
+      return mcpReply(req, { jsonrpc: "2.0", id, result: appsOnly ? APPS_TOOLS : PLAIN_TOOLS });
     case "prompts/list":
       return mcpReply(req, { jsonrpc: "2.0", id, result: { prompts: [] } });
     case "resources/list":
-      return mcpReply(req, { jsonrpc: "2.0", id, result: RESOURCES_LIST });
+      // /mcp 側はUIリソースを一切公開しない
+      return mcpReply(req, { jsonrpc: "2.0", id, result: appsOnly ? RESOURCES_LIST : { resources: [] } });
     case "resources/templates/list":
       return mcpReply(req, { jsonrpc: "2.0", id, result: { resourceTemplates: [] } });
     case "resources/read": {
       const uri = params?.uri;
-      if (uri !== SHOP_UI_URI)
+      if (!appsOnly || uri !== SHOP_UI_URI)
         return mcpReply(req, rpcError(id, -32002, `Resource not found: ${uri}`));
       const html = SHOP_HTML.replaceAll("__STAPY_ORIGIN__", origin);
       return mcpReply(req, {
@@ -273,9 +283,13 @@ async function handleMcp(req: Request, env: Env, origin: string): Promise<Respon
     case "tools/call": {
       const name = params?.name;
       const args = params?.arguments ?? {};
+      // エンドポイントで公開されていないツールは呼び出しも不可（接続単位の分離を保証）
+      const allowed = appsOnly ? APPS_NAMES : PLAIN_NAMES;
+      if (!allowed.has(name))
+        return mcpReply(req, rpcError(id, -32602, `Unknown tool: ${name}`));
       try {
         if (MODEL_TOOLS[name]) {
-          const { text, data } = await MODEL_TOOLS[name](env, args, name);
+          const { text, data } = await MODEL_TOOLS[name](env, args, name, appsOnly ? "MCP_APPS" : "MCP");
           return mcpReply(req, {
             jsonrpc: "2.0", id,
             result: { content: [{ type: "text", text }], structuredContent: data ?? { message: text }, isError: false },
@@ -407,7 +421,10 @@ export default {
 
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
-    if (url.pathname === "/mcp") return handleMcp(req, env, origin);
+    // MCP: /mcp = 通常接続（UIなし）、/mcp-apps = MCP Apps 接続。末尾 / も受理。
+    const mcpPath = url.pathname.replace(/\/$/, "");
+    if (mcpPath === "/mcp") return handleMcp(req, env, origin, false);
+    if (mcpPath === "/mcp-apps") return handleMcp(req, env, origin, true);
 
     const apiRes = await handleApi(req, env, url.pathname);
     if (apiRes) return apiRes;

@@ -6,8 +6,8 @@
 | # | 方式 | 実行経路 | ログチャネル |
 |---|------|----------|-------------|
 | 1 | 人間の通常Web操作 | ブラウザ → REST API | `WEB` |
-| 2 | AI の通常MCPツール呼び出し | MCPクライアント → Streamable HTTP `/mcp` | `MCP` |
-| 3 | MCP Apps（チャット内対話UI） | ホスト iframe → `callServerTool` → `ui_*` ツール | `MCP_APPS` |
+| 2 | AI の通常MCPツール呼び出し | MCPクライアント → Streamable HTTP **`/mcp`**（UI連携なし9ツールのみ公開） | `MCP` |
+| 3 | MCP Apps（チャット内対話UI） | MCPクライアント → Streamable HTTP **`/mcp-apps`**（`apps_*` 10 + UI内部 `ui_*` 8のみ公開）→ ホスト iframe → `callServerTool` | `MCP_APPS` |
 | 4 | WebMCP（ブラウザ内ツール公開） | ページ内 `document.modelContext` → `execute` → REST API | `WEBMCP` |
 
 **4方式すべて同じ商品マスター・サービス層・SQLiteカートを共有します。**
@@ -53,7 +53,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 | `http://localhost:8000/detail.html?product=lt-timer` | 商品詳細（既存UI） |
 | `http://localhost:8000/order_complete.html?order=<注文番号>` | 注文確定画面（デモ明記） |
 | `http://localhost:8000/logs.html` | 操作ログビューア（4チャネル色分け） |
-| `http://localhost:8000/mcp` | MCP エンドポイント（Streamable HTTP） |
+| `http://localhost:8000/mcp` | MCP エンドポイント・通常接続（Streamable HTTP、UI連携なし9ツール） |
+| `http://localhost:8000/mcp-apps` | MCP エンドポイント・MCP Apps 接続（`apps_*` 10 + `ui_*` 8、全ツールUI連携） |
 | `http://localhost:8000/api/products` `/api/cart` `/api/orders` `/api/demo/logs` `/api/demo/reset` | REST API |
 
 #### 環境変数
@@ -112,8 +113,8 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 | `stapy_shop/products.py` | 商品マスター20件＋7カテゴリ（products.js から移行。唯一の正本） |
 | `stapy_shop/service.py` | 共通サービス層。価格は常にマスターから取得 |
 | `stapy_shop/db.py` | SQLite（`cart_items`・`op_log`・`orders`）。RLock＋注文確定は1トランザクション |
-| `stapy_shop/api.py` | FastAPI。REST `/api/*`、静的ページ、MCP `/mcp` マウント |
-| `stapy_shop/mcp_server.py` | MCPツール18個 + Apps拡張 + `ui://stapy/shop.html` |
+| `stapy_shop/api.py` | FastAPI。REST `/api/*`、静的ページ、MCP `/mcp`（plain）+ `/mcp-apps`（apps）マウント |
+| `stapy_shop/mcp_server.py` | MCPツール27個 + Apps拡張 + `ui://stapy/shop.html`。`tool_set` でエンドポイント別に絞込 |
 | `stapy_shop/mcp_app/shop_app.html` | MCP Apps UI（ext-apps SDK v2.0.4 バンドル埋込） |
 | `stapy_shop/static/index.html` `detail.html` `logs.html` | 既存画面＋ログビューア |
 | `stapy_shop/static/shop.js` | 既存ロジックをREST化（localStorage廃止） |
@@ -134,16 +135,23 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 
 | チャネル | 識別方法 | 信頼度 |
 |---------|---------|--------|
-| `MCP` | MCPツール関数が明示的に指定 | サーバー確定 |
-| `MCP_APPS` | `visibility=["app"]` の `ui_*` ツール + `_require_apps` で Apps拡張ネゴシエーション済みクライアントのみ許可 | ネゴシエーション検証済（※iframe内操作の証明ではない） |
+| `MCP` | `/mcp` 接続のツール呼び出し（通常ツールのみ公開。UI連携ツールは `Unknown tool`） | サーバー確定 |
+| `MCP_APPS` | `/mcp-apps` 接続のツール呼び出し（`apps_*` + `ui_*` のみ公開）。`ui_*` はさらに `_require_apps` で Apps拡張ネゴシエーション済みクライアントのみ許可 | ネゴシエーション検証済（※iframe内操作の証明ではない） |
 | `WEB` / `WEBMCP` | WebMCPツールの execute だけが付ける `X-Stapy-Channel: webmcp` ヘッダで分岐 | ブラウザ送信値（監査上の事実ではなくデモ用目印。README「制約」参照） |
 
 ---
 
 ## 3. MCP ツール定義一覧
 
-エンドポイント: `POST http://127.0.0.1:8000/mcp`（Streamable HTTP）
-または `python -m stapy_shop --stdio`
+エンドポイントは接続単位で2系統に分離（勉強会で「UIを完全に使わない経路」を
+再現性よく見せるため）:
+
+| エンドポイント | 公開ツール | UIリソース |
+|----------------|-----------|-----------|
+| `POST http://127.0.0.1:8000/mcp` | 通常9ツールのみ。`apps_*`/`ui_*` の呼び出しは `Unknown tool` | なし（`resources/list` は空） |
+| `POST http://127.0.0.1:8000/mcp-apps` | `apps_*` 10 + `ui_*` 8（全ツール `_meta.ui` 付き）。通常ツールの呼び出しは `Unknown tool` | `ui://stapy/shop.html` |
+
+または `python -m stapy_shop --stdio`（全27ツールを公開。Inspector検証・コード生成用）
 
 ### モデル向けツール（channel=MCP）— 通常版（UI連携なし）
 
@@ -161,11 +169,12 @@ HTTP サーバーを立てず標準入出力で MCP を話します。MCP Inspec
 | `confirm_order` | preview で提示した内容をデモ注文として確定（確定後カートは空に） | 非readOnly・destructive・非idempotent |
 | `reset_demo` | カートを空にして初期状態へ | destructive・idempotent |
 
-### モデル向けツール（channel=MCP）— `apps_*` 版（UI連携あり）
+### モデル向けツール（channel=MCP_APPS）— `apps_*` 版（UI連携あり）
 
-全操作に `apps_` プレフィックス版を用意。`_meta.ui.resourceUri` 付きのため、
-**MCP Apps 対応ホストでは呼び出し結果が対話UIに自動表示**される。
-実装・返り値は同名の通常ツールと同一（ログの action 名だけ `apps_*` になる）。
+`/mcp-apps` 接続でのみ公開。全操作に `apps_` プレフィックス版を用意。
+`_meta.ui.resourceUri` 付きのため、**MCP Apps 対応ホストでは呼び出し結果が
+対話UIに自動表示**される。実装・返り値は同名の通常ツールと同一
+（ログは channel=`MCP_APPS`、action 名は `apps_*` になる）。
 
 | ツール | 対応する通常ツール |
 |--------|------------------|
